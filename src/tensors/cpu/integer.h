@@ -230,7 +230,7 @@ public:
   NodeOps forwardOps() override {
     return {NodeOp(
       using Integer = typename backend<Type_>::Integer;
-      using intgemm::JustUnquantizeC;
+      using intgemm::Unquantize;
 
       auto a = child(0)->val();
       auto quant_mult_a = child(1)->val();
@@ -239,7 +239,8 @@ public:
       backend<Type_>::Multiply(
           (const Integer*)a->data(),
           (const Integer*)b->data(),
-          JustUnquantizeC(val_->data(), scalar_ / (*quant_mult_a->data() * *quant_mult_b->data())),
+          val_->data(),
+          CreatePostprocessPipeline(Unquantize(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data()))),
           rows(a),
           cols(a), // Shared dimension.
           cols(b));
@@ -297,7 +298,8 @@ public:
   NodeOps forwardOps() override {
     return {NodeOp(
       using Integer = typename backend<Type_>::Integer;
-      using intgemm::BiasAddUnquantizeC;
+      using intgemm::Unquantize;
+      using intgemm::AddBias;
 
       auto a = child(0)->val();
       auto quant_mult_a = child(1)->val();
@@ -307,7 +309,8 @@ public:
       backend<Type_>::Multiply(
           (const Integer*)a->data(),
           (const Integer*)b->data(),
-          BiasAddUnquantizeC(val_->data(), bias->data(), scalar_ / (*quant_mult_a->data() * *quant_mult_b->data())),
+          val_->data(),
+          CreatePostprocessPipeline(Unquantize(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data())), AddBias(bias->data(), child(4)->shape()[-1])),
           rows(a),
           cols(a), // Shared dimension.
           cols(b));
