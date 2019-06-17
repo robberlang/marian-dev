@@ -271,7 +271,7 @@ private:
 
 public:
   AffineNodeOp(Expr a, Expr a_quant_mult, Expr b, Expr b_quant_mult, Expr bias, float scalar)
-      : OnlyForInferenceNodeOp({a, a_quant_mult, b, b_quant_mult, bias}, newShape(a, b, bias)), scalar_(scalar) {
+      : OnlyForInferenceNodeOp({a, a_quant_mult, b, b_quant_mult, bias}, newShape(a, b)), scalar_(scalar) {
     ABORT_IF(children().size() != 5, "expected 5 children");
 
     // Check if arguments are not null
@@ -289,7 +289,7 @@ public:
     ABORT_IF(child(2)->shape()[-1] != child(4)->shape()[-1], "Bias cannot be added because there's a dimension mismatch");
   }
 
-  Shape newShape(Expr a, Expr b, Expr bias) {
+  Shape newShape(Expr a, Expr b) {
     Shape result = a->shape();
     result.set(-1, b->shape()[-1]);
     return result;
@@ -321,6 +321,33 @@ public:
 };
 
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class ReLUNodeOp : public OnlyForInferenceNodeOp {
+public:
+  ReLUNodeOp(Expr input)
+      : OnlyForInferenceNodeOp({input}) {
+    ABORT_IF(children().size() != 1, "expected 1 children");
+    ABORT_IF(child(0) == nullptr, "Input cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(
+      using Integer = __m256;
+      using intgemm::CreatePostprocessPipeline;
+      using intgemm::InitPostprocessPipeline;
+      using intgemm::ReLU;
+      using intgemm::CPUType;
+
+      auto input = child(0)->val();
+      auto pipeline = CreatePostprocessPipeline(ReLU());
+      auto inited_pipeline = InitPostprocessPipeline<CPUType::AVX2>(pipeline);
+      inited_pipeline.run((const Integer*)input->data(), input->shape().elements() / sizeof(Integer) * 4, (Integer*)val_->data());
+    )};
+  }
+
+  const std::string type() override { return "intAffine"; }
+};
+
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 struct ops {
   static inline Expr dot(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, float scalar) {
     return Expression<DotNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, scalar);
@@ -339,6 +366,9 @@ struct ops {
   }
   static inline Expr selectColumnsB(Expr b, const std::vector<Word> &cols) {
     return Expression<SelectColumnsBNodeOp<Type_>>(b, cols);
+  }
+  static inline Expr relu(Expr input) {
+    return Expression<ReLUNodeOp<Type_>>(input);
   }
 };
 
