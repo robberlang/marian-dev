@@ -2,8 +2,8 @@
 
 #include "3rd_party/intgemm/intgemm.h"
 #include "common/hash.h"
+#include "functional/approx.h"
 #include "graph/node.h"
-#include "tensors/cpu/bias.h"
 
 namespace marian {
 namespace cpu {
@@ -348,6 +348,57 @@ public:
 };
 
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class HighwayNodeOp : public OnlyForInferenceNodeOp {
+public:
+  HighwayNodeOp(Expr y, Expr x, Expr t) : OnlyForInferenceNodeOp({y, x, t}) {
+    ABORT_IF(children().size() != 3, "expected 3 children");
+    ABORT_IF(child(0) == nullptr, "Y cannot be null");
+    ABORT_IF(child(1) == nullptr, "X cannot be null");
+    ABORT_IF(child(2) == nullptr, "T cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(highway(val_, child(0)->val(), child(1)->val(), child(2)->val()))};
+  }
+
+  const std::string type() override { return "intHighway"; }
+
+private:
+  static inline float stableSigmoid(float x) {
+    if(x >= 0) {
+      float z = expf(-x);
+      return 1.0f / (1.0f + z);
+    }
+    else {
+      float z = expf(x);
+      return z / (1.0f + z);
+    }
+  }
+
+  INTGEMM_AVX2 static void highway(marian::Tensor out, const marian::Tensor y, const marian::Tensor x, const marian::Tensor t) {
+    static functional::Approx<10, 0, 100> approxSigmoid(stableSigmoid);
+    static const auto const_one = intgemm::set1_ps<__m256>(1.f);
+    static const size_t ITEMS = sizeof(__m256) / 4;
+
+    auto out_ptr = reinterpret_cast<__m256*>(out->data());
+    auto y_ptr = reinterpret_cast<const __m256*>(y->data());
+    auto x_ptr = reinterpret_cast<const __m256*>(x->data());
+
+    const size_t length = out->shape().elements() / sizeof(__m256) * 4; // 4 bytes per float
+
+    __m256 sigma;
+    float* sigma_raw = reinterpret_cast<float*>(&sigma);
+    for(size_t i = 0; i < length; ++i) {
+      for (size_t j = 0; j < ITEMS; ++j)
+        sigma_raw[j] = approxSigmoid(t->data()[i * ITEMS + j]);
+
+      auto sigma_c = _mm256_sub_ps(const_one, sigma);
+      out_ptr[i] = intgemm::add_ps(intgemm::mul_ps(sigma, y_ptr[i]), intgemm::mul_ps(sigma_c, x_ptr[i]));
+    }
+  }
+};
+
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 struct ops {
   static inline Expr dot(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, float scalar) {
     return Expression<DotNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, scalar);
@@ -369,6 +420,9 @@ struct ops {
   }
   static inline Expr relu(Expr input) {
     return Expression<ReLUNodeOp<Type_>>(input);
+  }
+  static inline Expr highway(Expr y, Expr x, Expr t) {
+    return Expression<HighwayNodeOp<Type_>>(y, x, t);
   }
 };
 

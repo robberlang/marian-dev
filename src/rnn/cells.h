@@ -1156,7 +1156,7 @@ public:
     auto x = xWs[0];
     auto f = xWs[1];
 
-    auto nextCellState = highway(cellState, x, f);  // rename to "gate"?
+    auto nextCellState = impl::highway(cellState, x, f);  // rename to "gate"?
     auto nextState = impl::relu(nextCellState);
 
     auto maskedCellState = mask ? mask * nextCellState : nextCellState;
