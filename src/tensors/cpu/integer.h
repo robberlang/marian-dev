@@ -7,6 +7,22 @@
 
 namespace marian {
 namespace cpu {
+
+class OnlyForInferenceNodeOp : public NaryNodeOp {
+public:
+  OnlyForInferenceNodeOp(const std::vector<Expr>& nodes,
+                         Shape shape,
+                         Type value_type = Type::float32)
+      : NaryNodeOp(nodes, shape, value_type) {}
+
+  OnlyForInferenceNodeOp(const std::vector<Expr>& nodes) : NaryNodeOp(nodes) {}
+
+  NodeOps backwardOps() override {
+    ABORT("Only used for inference");
+    return {NodeOp()};
+  }
+};
+
 namespace integer {
 
 template <Type Type_>
@@ -27,21 +43,6 @@ template <> struct backend_s<Type::int16> { using backend = intgemm::Int16; };
 template <Type Type_> using backend = typename backend_s<Type_>::backend;
 
 } // anonymous namespace
-
-class OnlyForInferenceNodeOp : public NaryNodeOp {
-public:
-  OnlyForInferenceNodeOp(const std::vector<Expr>& nodes,
-                         Shape shape,
-                         Type value_type = Type::float32)
-      : NaryNodeOp(nodes, shape, value_type) {}
-
-  OnlyForInferenceNodeOp(const std::vector<Expr>& nodes) : NaryNodeOp(nodes) {}
-
-  NodeOps backwardOps() override {
-    ABORT("Only used for inference");
-    return {NodeOp()};
-  }
-};
 
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class QuantMultNodeOp : public OnlyForInferenceNodeOp {
@@ -321,6 +322,34 @@ public:
 };
 
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+struct ops {
+  static inline Expr dot(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, float scalar) {
+    return Expression<DotNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, scalar);
+  }
+  static inline Expr affine(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, Expr bias, float scalar) {
+    return Expression<AffineNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, bias, scalar);
+  }
+  static inline Expr quantMult(Expr a) {
+    return Expression<QuantMultNodeOp<Type_>>(a);
+  }
+  static inline Expr prepareA(Expr a, Expr quant_mult, float clipValue) {
+    return Expression<PrepareANodeOp<Type_>>(a, quant_mult, clipValue);
+  }
+  static inline Expr prepareB(Expr b, Expr quant_mult, float clipValue) {
+    return Expression<PrepareBNodeOp<Type_>>(b, quant_mult, clipValue);
+  }
+  static inline Expr selectColumnsB(Expr b, const std::vector<Word> &cols) {
+    return Expression<SelectColumnsBNodeOp<Type_>>(b, cols);
+  }
+};
+
+} // namespace integer
+
+using int8 = integer::ops<Type::int8>;
+using int16 = integer::ops<Type::int16>;
+
+namespace { // anonymous namespace
+
 class ReLUNodeOp : public OnlyForInferenceNodeOp {
 public:
   ReLUNodeOp(Expr input)
@@ -330,24 +359,25 @@ public:
   }
 
   NodeOps forwardOps() override {
-    return {NodeOp(
-      using Integer = __m256;
-      using intgemm::CreatePostprocessPipeline;
-      using intgemm::InitPostprocessPipeline;
-      using intgemm::ReLU;
-      using intgemm::CPUType;
-
-      auto input = child(0)->val();
-      auto pipeline = CreatePostprocessPipeline(ReLU());
-      auto inited_pipeline = InitPostprocessPipeline<CPUType::AVX2>(pipeline);
-      inited_pipeline.run((const Integer*)input->data(), input->shape().elements() / sizeof(Integer) * 4, (Integer*)val_->data());
-    )};
+    return {NodeOp(relu(val_, child(0)->val()))};
   }
 
   const std::string type() override { return "intAffine"; }
+
+private:
+  static void relu(marian::Tensor out, const marian::Tensor input) {
+    using vec_t = __m256;
+    using intgemm::CreatePostprocessPipeline;
+    using intgemm::InitPostprocessPipeline;
+    using intgemm::ReLU;
+    using intgemm::CPUType;
+
+    auto pipeline = CreatePostprocessPipeline(ReLU());
+    auto inited_pipeline = InitPostprocessPipeline<CPUType::AVX2>(pipeline);
+    inited_pipeline.run((const vec_t*)input->data(), input->shape().elements() / sizeof(vec_t) * 4, (vec_t*)out->data());
+  }
 };
 
-template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class HighwayNodeOp : public OnlyForInferenceNodeOp {
 public:
   HighwayNodeOp(Expr y, Expr x, Expr t) : OnlyForInferenceNodeOp({y, x, t}) {
@@ -375,18 +405,20 @@ private:
     }
   }
 
-  INTGEMM_AVX2 static void highway(marian::Tensor out, const marian::Tensor y, const marian::Tensor x, const marian::Tensor t) {
+  static void highway(marian::Tensor out, const marian::Tensor y, const marian::Tensor x, const marian::Tensor t) {
+    using vec_t = __m256;
+
     static functional::Approx<10, 0, 100> approxSigmoid(stableSigmoid);
-    static const auto const_one = intgemm::set1_ps<__m256>(1.f);
-    static const size_t ITEMS = sizeof(__m256) / 4;
+    static const auto const_one = intgemm::set1_ps<vec_t>(1.f);
+    static const size_t ITEMS = sizeof(vec_t) / 4;
 
-    auto out_ptr = reinterpret_cast<__m256*>(out->data());
-    auto y_ptr = reinterpret_cast<const __m256*>(y->data());
-    auto x_ptr = reinterpret_cast<const __m256*>(x->data());
+    auto out_ptr = reinterpret_cast<vec_t*>(out->data());
+    auto y_ptr = reinterpret_cast<const vec_t*>(y->data());
+    auto x_ptr = reinterpret_cast<const vec_t*>(x->data());
 
-    const size_t length = out->shape().elements() / sizeof(__m256) * 4; // 4 bytes per float
+    const size_t length = out->shape().elements() / sizeof(vec_t) * 4; // 4 bytes per float
 
-    __m256 sigma;
+    vec_t sigma;
     float* sigma_raw = reinterpret_cast<float*>(&sigma);
     for(size_t i = 0; i < length; ++i) {
       for (size_t j = 0; j < ITEMS; ++j)
@@ -398,38 +430,16 @@ private:
   }
 };
 
-template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
-struct ops {
-  static inline Expr dot(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, float scalar) {
-    return Expression<DotNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, scalar);
-  }
-  static inline Expr affine(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, Expr bias, float scalar) {
-    return Expression<AffineNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, bias, scalar);
-  }
-  static inline Expr quantMult(Expr a) {
-    return Expression<QuantMultNodeOp<Type_>>(a);
-  }
-  static inline Expr prepareA(Expr a, Expr quant_mult, float clipValue) {
-    return Expression<PrepareANodeOp<Type_>>(a, quant_mult, clipValue);
-  }
-  static inline Expr prepareB(Expr b, Expr quant_mult, float clipValue) {
-    return Expression<PrepareBNodeOp<Type_>>(b, quant_mult, clipValue);
-  }
-  static inline Expr selectColumnsB(Expr b, const std::vector<Word> &cols) {
-    return Expression<SelectColumnsBNodeOp<Type_>>(b, cols);
-  }
+} // anonymous namespace
+
+struct float32 {
   static inline Expr relu(Expr input) {
-    return Expression<ReLUNodeOp<Type_>>(input);
+    return Expression<ReLUNodeOp>(input);
   }
   static inline Expr highway(Expr y, Expr x, Expr t) {
-    return Expression<HighwayNodeOp<Type_>>(y, x, t);
+    return Expression<HighwayNodeOp>(y, x, t);
   }
 };
-
-} // namespace integer
-
-using int8 = integer::ops<Type::int8>;
-using int16 = integer::ops<Type::int16>;
 
 }
 }
