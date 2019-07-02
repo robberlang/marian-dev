@@ -322,34 +322,6 @@ public:
 };
 
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
-struct ops {
-  static inline Expr dot(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, float scalar) {
-    return Expression<DotNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, scalar);
-  }
-  static inline Expr affine(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, Expr bias, float scalar) {
-    return Expression<AffineNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, bias, scalar);
-  }
-  static inline Expr quantMult(Expr a) {
-    return Expression<QuantMultNodeOp<Type_>>(a);
-  }
-  static inline Expr prepareA(Expr a, Expr quant_mult, float clipValue) {
-    return Expression<PrepareANodeOp<Type_>>(a, quant_mult, clipValue);
-  }
-  static inline Expr prepareB(Expr b, Expr quant_mult, float clipValue) {
-    return Expression<PrepareBNodeOp<Type_>>(b, quant_mult, clipValue);
-  }
-  static inline Expr selectColumnsB(Expr b, const std::vector<Word> &cols) {
-    return Expression<SelectColumnsBNodeOp<Type_>>(b, cols);
-  }
-};
-
-} // namespace integer
-
-using int8 = integer::ops<Type::int8>;
-using int16 = integer::ops<Type::int16>;
-
-namespace { // anonymous namespace
-
 class ReLUNodeOp : public OnlyForInferenceNodeOp {
 public:
   ReLUNodeOp(Expr input)
@@ -362,21 +334,57 @@ public:
     return {NodeOp(relu(val_, child(0)->val()))};
   }
 
-  const std::string type() override { return "intAffine"; }
+  const std::string type() override { return "intReLU"; }
 
 private:
-  static void relu(marian::Tensor out, const marian::Tensor input) {
-    using vec_t = __m256;
-    using intgemm::CreatePostprocessPipeline;
-    using intgemm::InitPostprocessPipeline;
-    using intgemm::ReLU;
-    using intgemm::CPUType;
+  static void relu(marian::Tensor output, const marian::Tensor input) {
+    static const auto const_zero = _mm256_setzero_si256();
 
-    auto pipeline = CreatePostprocessPipeline(ReLU());
-    auto inited_pipeline = InitPostprocessPipeline<CPUType::AVX2>(pipeline);
-    inited_pipeline.run((const vec_t*)input->data(), input->shape().elements() / sizeof(vec_t) * 4, (vec_t*)out->data());
+    auto input_it = input->data<__m256i>();
+    auto output_it = output->data<__m256i>();
+    auto lenght = input->shape().elements() / sizeof(__m256i) * sizeOf(Type_);
+
+    if (Type_ == Type::int8) {
+      for (auto i = 0; i < lenght; ++i)
+        *output_it++ = _mm256_max_epi8(*input_it++, const_zero);
+    } else if (Type_ == Type::int16) {
+      for (auto i = 0; i < lenght; ++i)
+        *output_it++ = _mm256_max_epi16(*input_it++, const_zero);
+    }
   }
 };
+
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+struct ops {
+  static inline Expr quantMult(Expr a) {
+    return Expression<QuantMultNodeOp<Type_>>(a);
+  }
+  static inline Expr prepareA(Expr a, Expr quant_mult, float clipValue) {
+    return Expression<PrepareANodeOp<Type_>>(a, quant_mult, clipValue);
+  }
+  static inline Expr prepareB(Expr b, Expr quant_mult, float clipValue) {
+    return Expression<PrepareBNodeOp<Type_>>(b, quant_mult, clipValue);
+  }
+  static inline Expr selectColumnsB(Expr b, const std::vector<Word> &cols) {
+    return Expression<SelectColumnsBNodeOp<Type_>>(b, cols);
+  }
+  static inline Expr dot(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, float scalar) {
+    return Expression<DotNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, scalar);
+  }
+  static inline Expr affine(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, Expr bias, float scalar) {
+    return Expression<AffineNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, bias, scalar);
+  }
+  static inline Expr relu(Expr input) {
+    return Expression<ReLUNodeOp<Type_>>(input);
+  }
+};
+
+} // namespace integer
+
+using int8 = integer::ops<Type::int8>;
+using int16 = integer::ops<Type::int16>;
+
+namespace { // anonymous namespace
 
 class HighwayNodeOp : public OnlyForInferenceNodeOp {
 public:
@@ -391,7 +399,7 @@ public:
     return {NodeOp(highway(val_, child(0)->val(), child(1)->val(), child(2)->val()))};
   }
 
-  const std::string type() override { return "intHighway"; }
+  const std::string type() override { return "floatHighway"; }
 
 private:
   static inline float stableSigmoid(float x) {
@@ -433,9 +441,6 @@ private:
 } // anonymous namespace
 
 struct float32 {
-  static inline Expr relu(Expr input) {
-    return Expression<ReLUNodeOp>(input);
-  }
   static inline Expr highway(Expr y, Expr x, Expr t) {
     return Expression<HighwayNodeOp>(y, x, t);
   }
