@@ -185,41 +185,25 @@ private:
   std::vector<Word> indices_;
 };
 
-/*
-*                   +-----------+
-*                   |    Dot    |
-*                   +-----+-----+
-*                         |
-*         +----------+----+-----+----------+
-*         |          |          |          |
-*  +------+------+   |   +------+------+   |
-*  | Quantized A |   |   | Quantized B |   |
-*  +-------------+   |   +-------------+   |
-*             +------+------+       +------+------+
-*             | QuantMult A |       | QuantMult B |
-*             +-------------+       +-------------+
-*/
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class DotNodeOp : public OnlyForInferenceNodeOp {
 private:
   float scalar_;
 
 public:
-  DotNodeOp(Expr a, Expr a_quant_mult, Expr b, Expr b_quant_mult, float scalar)
-      : OnlyForInferenceNodeOp({a, a_quant_mult, b, b_quant_mult}, newShape(a, b)), scalar_(scalar) {
-    ABORT_IF(children().size() != 4, "expected 4 children");
+  DotNodeOp(Expr a, Expr b, float scalar)
+      : OnlyForInferenceNodeOp({a, b}, newShape(a, b)), scalar_(scalar) {
+    ABORT_IF(children().size() != 2, "expected 2 children");
 
     // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "A cannot be null");
-    ABORT_IF(child(1) == nullptr, "Quant mult of A cannot be null");
-    ABORT_IF(child(2) == nullptr, "B cannot be null");
-    ABORT_IF(child(3) == nullptr, "Quant mult of B cannot be null");
+    ABORT_IF(child(1) == nullptr, "B cannot be null");
 
     // Check alignment
-    assert(child(2)->shape()[-1] % 8 == 0);
+    assert(child(1)->shape()[-1] % 8 == 0);
 
     // Check dimmensions
-    ABORT_IF(child(0)->shape()[-1] != child(2)->shape()[-2], "Matrices cannot be multiplied because there's a dimension mismatch");
+    ABORT_IF(child(0)->shape()[-1] != child(1)->shape()[-2], "Matrices cannot be multiplied because there's a dimension mismatch");
   }
 
   Shape newShape(Expr a, Expr b) {
@@ -231,62 +215,44 @@ public:
   NodeOps forwardOps() override {
     return {NodeOp(
       using Integer = typename backend<Type_>::Integer;
-      using intgemm::callbacks::UnquantizeAndWrite;
+      using intgemm::callbacks::Write;
 
       auto a = child(0)->val();
-      auto quant_mult_a = child(1)->val();
-      auto b = child(2)->val();
-      auto quant_mult_b = child(3)->val();
+      auto b = child(1)->val();
       backend<Type_>::Multiply(
           (const Integer*)a->data(),
           (const Integer*)b->data(),
           rows(a),
           cols(a), // Shared dimension.
           cols(b),
-          UnquantizeAndWrite(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data()), val_->data()));
+          Write<int>(val_->data<int>()));
     )};
   }
 
   const std::string type() override { return "intDot"; }
 };
 
-/*
-*                         +-----------+
-*                         |  Affine   |
-*                         +-----+-----+
-*                               |
-*         +----------+----------+----------+----------+
-*         |          |          |          |          |
-*  +------+------+   |   +------+------+   |      +---+---+
-*  | Quantized A |   |   | Quantized B |   |      | Bias  |
-*  +-------------+   |   +-------------+   |      +-------+
-*             +------+------+       +------+------+
-*             | QuantMult A |       | QuantMult B |
-*             +-------------+       +-------------+
-*/
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class AffineNodeOp : public OnlyForInferenceNodeOp {
 private:
   float scalar_;
 
 public:
-  AffineNodeOp(Expr a, Expr a_quant_mult, Expr b, Expr b_quant_mult, Expr bias, float scalar)
-      : OnlyForInferenceNodeOp({a, a_quant_mult, b, b_quant_mult, bias}, newShape(a, b)), scalar_(scalar) {
-    ABORT_IF(children().size() != 5, "expected 5 children");
+  AffineNodeOp(Expr a, Expr b, Expr bias, float scalar)
+      : OnlyForInferenceNodeOp({a, b, bias}, newShape(a, b)), scalar_(scalar) {
+    ABORT_IF(children().size() != 3, "expected 3 children");
 
     // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "A cannot be null");
-    ABORT_IF(child(1) == nullptr, "Quant mult of A cannot be null");
-    ABORT_IF(child(2) == nullptr, "B cannot be null");
-    ABORT_IF(child(3) == nullptr, "Quant mult of B cannot be null");
-    ABORT_IF(child(4) == nullptr, "Bias cannot be null");
+    ABORT_IF(child(1) == nullptr, "B cannot be null");
+    ABORT_IF(child(2) == nullptr, "Bias cannot be null");
 
     // Check alignment
-    assert(child(2)->shape()[-1] % 8 == 0);
+    assert(child(1)->shape()[-1] % 8 == 0);
 
     // Check dimmensions
-    ABORT_IF(child(0)->shape()[-1] != child(2)->shape()[-2], "Matrices cannot be multiplied because there's a dimension mismatch");
-    ABORT_IF(child(2)->shape()[-1] != child(4)->shape()[-1], "Bias cannot be added because there's a dimension mismatch");
+    ABORT_IF(child(0)->shape()[-1] != child(1)->shape()[-2], "Matrices cannot be multiplied because there's a dimension mismatch");
+    ABORT_IF(child(1)->shape()[-1] != child(2)->shape()[-1], "Bias cannot be added because there's a dimension mismatch");
   }
 
   Shape newShape(Expr a, Expr b) {
@@ -298,20 +264,18 @@ public:
   NodeOps forwardOps() override {
     return {NodeOp(
       using Integer = typename backend<Type_>::Integer;
-      using intgemm::callbacks::UnquantizeAndAddBiasAndWrite;
+      using intgemm::callbacks::AddBiasAndWrite;
 
       auto a = child(0)->val();
-      auto quant_mult_a = child(1)->val();
-      auto b = child(2)->val();
-      auto quant_mult_b = child(3)->val();
-      auto bias = child(4)->val();
+      auto b = child(1)->val();
+      auto bias = child(2)->val();
       backend<Type_>::Multiply(
           (const Integer*)a->data(),
           (const Integer*)b->data(),
           rows(a),
           cols(a), // Shared dimension.
           cols(b),
-          UnquantizeAndAddBiasAndWrite(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data()), bias->data(), val_->data()));
+          AddBiasAndWrite(bias->data<int>(), val_->data<int>()));
     )};
   }
 
@@ -352,6 +316,36 @@ private:
 };
 
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class UnquantizeNodeOp : public OnlyForInferenceNodeOp {
+public:
+  UnquantizeNodeOp(Expr input, Expr unquant_mult) : OnlyForInferenceNodeOp({input, unquant_mult}) {
+    ABORT_IF(children().size() != 2, "expected 2 children");
+    ABORT_IF(child(0) == nullptr, "Input cannot be null");
+    ABORT_IF(child(1) == nullptr, "UnquantMult cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(kernel(val_, child(0)->val(), child(1)->val()))};
+  }
+
+  const std::string type() override { return "intUnquantize"; }
+
+private:
+  static inline void kernel(Tensor output, const Tensor input, const Tensor unquant_mult) {
+    // TODO: Vectorize it.
+    if (Type_ == Type::int8) {
+      for (auto i = 0; i < output->shape().elements(); ++i) {
+        output->data()[i] = input->data<int8_t>()[i] * *unquant_mult->data();
+      }
+    } else if (Type_ == Type::int16) {
+      for (auto i = 0; i < output->shape().elements(); ++i) {
+        output->data()[i] = input->data<int16_t>()[i] * *unquant_mult->data();
+      }
+    }
+  }
+};
+
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 struct ops {
   static inline Expr quantMult(Expr a) {
     return Expression<QuantMultNodeOp<Type_>>(a);
@@ -365,14 +359,17 @@ struct ops {
   static inline Expr selectColumnsB(Expr b, const std::vector<Word> &cols) {
     return Expression<SelectColumnsBNodeOp<Type_>>(b, cols);
   }
-  static inline Expr dot(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, float scalar) {
-    return Expression<DotNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, scalar);
+  static inline Expr dot(Expr a, Expr b, float scalar = 1.0f) {
+    return Expression<DotNodeOp<Type_>>(a, b, scalar);
   }
-  static inline Expr affine(Expr a, Expr quant_mult_a, Expr b, Expr quant_mult_b, Expr bias, float scalar) {
-    return Expression<AffineNodeOp<Type_>>(a, quant_mult_a, b, quant_mult_b, bias, scalar);
+  static inline Expr affine(Expr a, Expr b, Expr bias, float scalar = 1.0f) {
+    return Expression<AffineNodeOp<Type_>>(a, b, bias, scalar);
   }
   static inline Expr relu(Expr input) {
     return Expression<ReLUNodeOp<Type_>>(input);
+  }
+  static inline Expr unquantize(Expr input, Expr unquant_mult) {
+    return Expression<UnquantizeNodeOp<Type_>>(input, unquant_mult);
   }
 };
 

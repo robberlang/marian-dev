@@ -383,9 +383,8 @@ Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
     // TODO(emjotde) choice of 16 or 8 bit.
     auto quant_a = int8_quantizeA(a, transA, clipValue);
     auto quant_b = int8_quantizeB(b, transB, clipValue);
-    return cpu::int8::dot(quant_a.first, quant_a.second,
-                          quant_b.first, quant_b.second,
-                          scale);
+    return cpu::int8::unquantize(cpu::int8::dot(quant_a.first, quant_b.first,
+      scale), 1.0 / (quant_a.second * quant_b.second));
   }
   else {
     return Expression<DotNodeOp>(
@@ -444,11 +443,8 @@ Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
           quant_a = {rec1(cpu::int8::prepareA(transA ? rec1(transpose(a)) : a, quant_mult, clipValue)), quant_mult};
         }
         auto quant_b = int8_quantizeB(b, transB, clipValue);
-        return rec1(cpu::int8::affine(quant_a.first, quant_a.second,
-                                      quant_b.first, quant_b.second,
-                                      bias,
-                                      scale),
-                    true);
+        return rec1(cpu::int8::unquantize(cpu::int8::affine(quant_a.first, quant_b.first,
+          bias, scale), 1.0 / (quant_a.second * quant_b.second)), true);
       };
       tuner->insert({hash1, alg1});
 
@@ -484,10 +480,8 @@ Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
       // cpu int8 version
       auto quant_a = int8_quantizeA(a, transA, clipValue);
       auto quant_b = int8_quantizeB(b, transB, clipValue);
-      return cpu::int8::affine(quant_a.first, quant_a.second,
-                               quant_b.first, quant_b.second,
-                               bias,
-                               scale);
+      return cpu::int8::unquantize(cpu::int8::affine(quant_a.first, quant_b.first,
+        bias, scale), 1.0 / (quant_a.second * quant_b.second));
     }
   } else {
     // general version, MKL, CBlas or CUDA
