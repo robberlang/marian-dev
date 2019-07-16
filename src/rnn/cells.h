@@ -1156,7 +1156,7 @@ public:
     auto x = xWs[0];
     auto f = xWs[1];
 
-    auto nextCellState = cpu::float32::highway(cellState, x, f);  // rename to "gate"?
+    auto nextCellState = highway(cellState, x, f);  // rename to "gate"?
     auto nextState = cpu::int8::relu(nextCellState);
 
     auto maskedCellState = mask ? mask * nextCellState : nextCellState;

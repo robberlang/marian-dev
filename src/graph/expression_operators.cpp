@@ -359,7 +359,7 @@ std::pair<Expr, Expr> int8_quantizeA(Expr matrix, bool trans, float clipValue) {
     return {trans ? transpose(matrix) : matrix, matrix->child(1)};
   else {
     auto quant_mult = marian::cpu::int8::quantMult(matrix);
-    return {cpu::int8::prepareA(trans ? transpose(matrix) : matrix, quant_mult, clipValue), quant_mult};
+    return {cpu::int8::prepareA(trans ? transpose(matrix) : matrix, quant_mult), quant_mult};
   }
 }
 std::pair<Expr, Expr> int8_quantizeB(Expr matrix, bool trans, float clipValue) {
@@ -369,7 +369,7 @@ std::pair<Expr, Expr> int8_quantizeB(Expr matrix, bool trans, float clipValue) {
     return {trans ? transpose(matrix) : matrix, matrix->child(1)};
   else {
     auto quant_mult = marian::cpu::int8::quantMult(matrix);
-    return {cpu::int8::prepareB(trans ? transpose(matrix) : matrix, quant_mult, clipValue), quant_mult};
+    return {cpu::int8::prepareB(trans ? transpose(matrix) : matrix, quant_mult), quant_mult};
   }
 }
 } // anonymous namespace
@@ -440,7 +440,7 @@ Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
           quant_a = {transA ? rec1(transpose(a)) : a, a->child(1)};
         else {
           auto quant_mult = marian::cpu::int8::quantMult(a);
-          quant_a = {rec1(cpu::int8::prepareA(transA ? rec1(transpose(a)) : a, quant_mult, clipValue)), quant_mult};
+          quant_a = {rec1(cpu::int8::prepareA(transA ? rec1(transpose(a)) : a, quant_mult)), quant_mult};
         }
         auto quant_b = int8_quantizeB(b, transB, clipValue);
         return rec1(cpu::int8::unquantize(cpu::int8::affine(quant_a.first, quant_b.first,

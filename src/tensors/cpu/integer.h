@@ -32,8 +32,6 @@ using EnableIfTypeIsSupported = typename std::enable_if<
     (Type_ == Type::int16)
   >::value>::type;
 
-namespace { // anonymous namespace
-
 inline int cols(Tensor& tensor) { return tensor->shape()[-1]; }
 inline int rows(Tensor& tensor) { return tensor->shape().elements() / cols(tensor); }
 
@@ -42,15 +40,10 @@ template <> struct backend_s<Type::int8> { using backend = intgemm::Int8; };
 template <> struct backend_s<Type::int16> { using backend = intgemm::Int16; };
 template <Type Type_> using backend = typename backend_s<Type_>::backend;
 
-} // anonymous namespace
-
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class QuantMultNodeOp : public OnlyForInferenceNodeOp {
 public:
   QuantMultNodeOp(Expr input) : OnlyForInferenceNodeOp({input}, Shape()) {
-    ABORT_IF(children().size() != 1, "expected 1 child");
-
-    // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "Input matrix cannot be null");
   }
 
@@ -71,8 +64,6 @@ public:
   const std::string type() override { return "intQuantMult"; }
 };
 
-namespace { // anonymous namespace
-
 template <Type Type_, typename PrepareMatrixFun>
 inline NodeOps prepareMatrixForwardOps(Node* node, PrepareMatrixFun prepare_matrix_fun) {
   return {NodeOp(
@@ -89,16 +80,11 @@ inline NodeOps prepareMatrixForwardOps(Node* node, PrepareMatrixFun prepare_matr
   )};
 }
 
-} // anonymous namespace
-
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class PrepareANodeOp : public OnlyForInferenceNodeOp {
 public:
-  PrepareANodeOp(Expr input, Expr quant_mult, float clipValue)
+  PrepareANodeOp(Expr input, Expr quant_mult)
       : OnlyForInferenceNodeOp({input, quant_mult}, input->shape(), Type_) {
-    ABORT_IF(children().size() != 2, "expected 2 children");
-
-    // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "A cannot be null");
     ABORT_IF(child(1) == nullptr, "Quant mult of A cannot be null");
   }
@@ -113,11 +99,8 @@ public:
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class PrepareBNodeOp : public OnlyForInferenceNodeOp {
 public:
-  PrepareBNodeOp(Expr input, Expr quant_mult, float clipValue)
+  PrepareBNodeOp(Expr input, Expr quant_mult)
       : OnlyForInferenceNodeOp({input, quant_mult}, input->shape(), Type_) {
-    ABORT_IF(children().size() != 2, "expected 2 children");
-
-    // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "B cannot be null");
     ABORT_IF(child(1) == nullptr, "Quant mult of B cannot be null");
   }
@@ -134,9 +117,6 @@ class SelectColumnsBNodeOp : public OnlyForInferenceNodeOp {
 public:
   SelectColumnsBNodeOp(Expr input, const std::vector<Word> &indices)
       : OnlyForInferenceNodeOp({input}, newShape(input, indices), Type_), indices_(indices) {
-    ABORT_IF(children().size() != 1, "expected 1 child");
-
-    // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "B cannot be null");
 
     // Check number of selected columns
@@ -193,9 +173,6 @@ private:
 public:
   DotNodeOp(Expr a, Expr b, float scalar)
       : OnlyForInferenceNodeOp({a, b}, newShape(a, b)), scalar_(scalar) {
-    ABORT_IF(children().size() != 2, "expected 2 children");
-
-    // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "A cannot be null");
     ABORT_IF(child(1) == nullptr, "B cannot be null");
 
@@ -240,9 +217,6 @@ private:
 public:
   AffineNodeOp(Expr a, Expr b, Expr bias, float scalar)
       : OnlyForInferenceNodeOp({a, b, bias}, newShape(a, b)), scalar_(scalar) {
-    ABORT_IF(children().size() != 3, "expected 3 children");
-
-    // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "A cannot be null");
     ABORT_IF(child(1) == nullptr, "B cannot be null");
     ABORT_IF(child(2) == nullptr, "Bias cannot be null");
@@ -285,9 +259,7 @@ public:
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class ReLUNodeOp : public OnlyForInferenceNodeOp {
 public:
-  ReLUNodeOp(Expr input)
-      : OnlyForInferenceNodeOp({input}) {
-    ABORT_IF(children().size() != 1, "expected 1 children");
+  ReLUNodeOp(Expr input) : OnlyForInferenceNodeOp({input}) {
     ABORT_IF(child(0) == nullptr, "Input cannot be null");
   }
 
@@ -319,7 +291,6 @@ template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
 class UnquantizeNodeOp : public OnlyForInferenceNodeOp {
 public:
   UnquantizeNodeOp(Expr input, Expr unquant_mult) : OnlyForInferenceNodeOp({input, unquant_mult}) {
-    ABORT_IF(children().size() != 2, "expected 2 children");
     ABORT_IF(child(0) == nullptr, "Input cannot be null");
     ABORT_IF(child(1) == nullptr, "UnquantMult cannot be null");
   }
@@ -350,11 +321,11 @@ struct ops {
   static inline Expr quantMult(Expr a) {
     return Expression<QuantMultNodeOp<Type_>>(a);
   }
-  static inline Expr prepareA(Expr a, Expr quant_mult, float clipValue) {
-    return Expression<PrepareANodeOp<Type_>>(a, quant_mult, clipValue);
+  static inline Expr prepareA(Expr a, Expr quant_mult) {
+    return Expression<PrepareANodeOp<Type_>>(a, quant_mult);
   }
-  static inline Expr prepareB(Expr b, Expr quant_mult, float clipValue) {
-    return Expression<PrepareBNodeOp<Type_>>(b, quant_mult, clipValue);
+  static inline Expr prepareB(Expr b, Expr quant_mult) {
+    return Expression<PrepareBNodeOp<Type_>>(b, quant_mult);
   }
   static inline Expr selectColumnsB(Expr b, const std::vector<Word> &cols) {
     return Expression<SelectColumnsBNodeOp<Type_>>(b, cols);
@@ -377,68 +348,6 @@ struct ops {
 
 using int8 = integer::ops<Type::int8>;
 using int16 = integer::ops<Type::int16>;
-
-namespace { // anonymous namespace
-
-class HighwayNodeOp : public OnlyForInferenceNodeOp {
-public:
-  HighwayNodeOp(Expr y, Expr x, Expr t) : OnlyForInferenceNodeOp({y, x, t}) {
-    ABORT_IF(children().size() != 3, "expected 3 children");
-    ABORT_IF(child(0) == nullptr, "Y cannot be null");
-    ABORT_IF(child(1) == nullptr, "X cannot be null");
-    ABORT_IF(child(2) == nullptr, "T cannot be null");
-  }
-
-  NodeOps forwardOps() override {
-    return {NodeOp(highway(val_, child(0)->val(), child(1)->val(), child(2)->val()))};
-  }
-
-  const std::string type() override { return "floatHighway"; }
-
-private:
-  static inline float stableSigmoid(float x) {
-    if(x >= 0) {
-      float z = expf(-x);
-      return 1.0f / (1.0f + z);
-    }
-    else {
-      float z = expf(x);
-      return z / (1.0f + z);
-    }
-  }
-
-  static void highway(marian::Tensor out, const marian::Tensor y, const marian::Tensor x, const marian::Tensor t) {
-    using vec_t = __m256;
-
-    static functional::Approx<10, 0, 100> approxSigmoid(stableSigmoid);
-    static const auto const_one = intgemm::set1_ps<vec_t>(1.f);
-    static const size_t ITEMS = sizeof(vec_t) / 4;
-
-    auto out_ptr = reinterpret_cast<vec_t*>(out->data());
-    auto y_ptr = reinterpret_cast<const vec_t*>(y->data());
-    auto x_ptr = reinterpret_cast<const vec_t*>(x->data());
-
-    const size_t length = out->shape().elements() / sizeof(vec_t) * 4; // 4 bytes per float
-
-    vec_t sigma = intgemm::setzero_ps<vec_t>();
-    float* sigma_raw = reinterpret_cast<float*>(&sigma);
-    for(size_t i = 0; i < length; ++i) {
-      for (size_t j = 0; j < ITEMS; ++j)
-        sigma_raw[j] = approxSigmoid(t->data()[i * ITEMS + j]);
-
-      auto sigma_c = _mm256_sub_ps(const_one, sigma);
-      out_ptr[i] = intgemm::add_ps(intgemm::mul_ps(sigma, y_ptr[i]), intgemm::mul_ps(sigma_c, x_ptr[i]));
-    }
-  }
-};
-
-} // anonymous namespace
-
-struct float32 {
-  static inline Expr highway(Expr y, Expr x, Expr t) {
-    return Expression<HighwayNodeOp>(y, x, t);
-  }
-};
 
 }
 }
