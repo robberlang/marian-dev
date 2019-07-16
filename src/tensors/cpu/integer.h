@@ -231,7 +231,7 @@ public:
   NodeOps forwardOps() override {
     return {NodeOp(
       using Integer = typename backend<Type_>::Integer;
-      using intgemm::Unquantize;
+      using intgemm::callbacks::UnquantizeAndWrite;
 
       auto a = child(0)->val();
       auto quant_mult_a = child(1)->val();
@@ -240,11 +240,10 @@ public:
       backend<Type_>::Multiply(
           (const Integer*)a->data(),
           (const Integer*)b->data(),
-          val_->data(),
-          CreatePostprocessPipeline(Unquantize(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data()))),
           rows(a),
           cols(a), // Shared dimension.
-          cols(b));
+          cols(b),
+          UnquantizeAndWrite(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data()), val_->data()));
     )};
   }
 
@@ -299,8 +298,7 @@ public:
   NodeOps forwardOps() override {
     return {NodeOp(
       using Integer = typename backend<Type_>::Integer;
-      using intgemm::Unquantize;
-      using intgemm::AddBias;
+      using intgemm::callbacks::UnquantizeAndAddBiasAndWrite;
 
       auto a = child(0)->val();
       auto quant_mult_a = child(1)->val();
@@ -310,11 +308,10 @@ public:
       backend<Type_>::Multiply(
           (const Integer*)a->data(),
           (const Integer*)b->data(),
-          val_->data(),
-          CreatePostprocessPipeline(Unquantize(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data())), AddBias(bias->data(), child(4)->shape()[-1])),
           rows(a),
           cols(a), // Shared dimension.
-          cols(b));
+          cols(b),
+          UnquantizeAndAddBiasAndWrite(scalar_ / (*quant_mult_a->data() * *quant_mult_b->data()), bias->data(), val_->data()));
     )};
   }
 
@@ -426,7 +423,7 @@ private:
 
     const size_t length = out->shape().elements() / sizeof(vec_t) * 4; // 4 bytes per float
 
-    vec_t sigma;
+    vec_t sigma = intgemm::setzero_ps<vec_t>();
     float* sigma_raw = reinterpret_cast<float*>(&sigma);
     for(size_t i = 0; i < length; ++i) {
       for (size_t j = 0; j < ITEMS; ++j)
