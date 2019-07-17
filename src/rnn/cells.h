@@ -1080,46 +1080,22 @@ public:
 template <Type Type_, typename = cpu::integer::EnableIfTypeIsSupported<Type_>>
 class SSRUInteger : public Cell {
 private:
-  Expr W_;
-  Expr Wf_, bf_;
-
-  float dropout_;
-  Expr dropMaskX_;
-
-  float layerNorm_;
-  Expr gamma_, gammaf_;
+  Expr W_, Wf_, bf_;
 
   using impl = cpu::integer::ops<Type_>;
 
 public:
   SSRUInteger(Ptr<ExpressionGraph> graph, Ptr<Options> options) : Cell(options) {
-    int dimInput = options_->get<int>("dimInput");
-    int dimState = options_->get<int>("dimState");
+    auto dimInput = options_->get<int>("dimInput");
+    auto dimState = options_->get<int>("dimState");
+    auto prefix = options->get<std::string>("prefix");
 
-    std::string prefix = options->get<std::string>("prefix");
+    ABORT_IF(dimInput != dimState, "For SSRUInteger state and input dims have to be equal");
 
-    ABORT_IF(dimInput != dimState,
-             "For SSRUInteger state and input dims have to be equal");
-
-    dropout_ = opt<float>("dropout", 0);
-    layerNorm_ = opt<bool>("layer-normalization", false);
-
-    W_ = graph->param(
-        prefix + "_W", {dimInput, dimInput}, inits::glorot_uniform);
-
-    Wf_ = graph->param(
-        prefix + "_Wf", {dimInput, dimInput}, inits::glorot_uniform);
+    // TODO: Hack the size of allocation. We stores int8_t instead of floats.
+    W_ = graph->param(prefix + "_W", {dimInput, dimInput}, inits::glorot_uniform);
+    Wf_ = graph->param(prefix + "_Wf", {dimInput, dimInput}, inits::glorot_uniform);
     bf_ = graph->param(prefix + "_bf", {1, dimInput}, inits::zeros);
-
-    if(dropout_ > 0.0f) {
-      dropMaskX_ = graph->dropout(dropout_, {1, dimInput});
-    }
-
-    if(layerNorm_) {
-      if(dimInput)
-        gamma_ = graph->param(prefix + "_gamma", {1, dimState}, inits::ones);
-      gammaf_ = graph->param(prefix + "_gammaf", {1, dimState}, inits::ones);
-    }
   }
 
   State apply(std::vector<Expr> inputs, State state, Expr mask = nullptr) {
@@ -1129,38 +1105,35 @@ public:
   std::vector<Expr> applyInput(std::vector<Expr> inputs) override {
     ABORT_IF(inputs.empty(), "SSRUInteger expects input");
 
+    // TODO: Find the best way to pass sigmoidLUT and scale.
+    Expr sigmoidLUT = inputs[0];
+    Expr scale = inputs[1];
+    inputs = std::vector<Expr>(inputs.begin() + 2, inputs.end());
+
     Expr input;
     if(inputs.size() > 1)
       input = concatenate(inputs, /*axis =*/ -1);
     else
       input = inputs.front();
 
-    auto inputDropped = dropMaskX_ ? dropout(input, dropMaskX_) : input;
+    Expr sigmoid_f = impl::SSRUSigmoidF(input, Wf_, bf_, scale, sigmoidLUT);
+    Expr precomputed_part_of_highway = impl::SSRUPrecomputedPartOfHighway(input, W_, sigmoid_f, scale);
 
-    Expr x, f;
-    if(layerNorm_) {
-      x = layerNorm(dot(inputDropped, W_), gamma_);
-      f = layerNorm(dot(inputDropped, Wf_), gammaf_, bf_);
-    } else {
-      x = dot(inputDropped, W_);
-      f = affine(inputDropped, Wf_, bf_);
-    }
-
-    return {x, f};
+    return {precomputed_part_of_highway, sigmoid_f};
   }
 
   State applyState(std::vector<Expr> xWs, State state, Expr mask = nullptr) override {
     auto recState = state.output;
     auto cellState = state.cell;
 
-    auto x = xWs[0];
-    auto f = xWs[1];
+    auto precomputed_part_of_highway = xWs[0];
+    auto sigmoid_f = xWs[1];
 
-    auto nextCellState = highway(cellState, x, f);  // rename to "gate"?
-    auto nextState = cpu::int8::relu(nextCellState);
+    auto nextCellState = impl::elemwiseAdd(impl::elemwiseMul(cellState, sigmoid_f, sizeOf(Type_) - 1), precomputed_part_of_highway);
+    auto nextState = impl::relu(nextCellState);
 
-    auto maskedCellState = mask ? mask * nextCellState : nextCellState;
-    auto maskedState = mask ? mask * nextState : nextState;
+    auto maskedCellState = !mask ? nextCellState : impl::elemwiseRescale(nextCellState, mask);
+    auto maskedState = !mask ? nextState : impl::elemwiseRescale(nextState, mask);
 
     return {maskedState, maskedCellState};
   }

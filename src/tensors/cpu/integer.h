@@ -264,25 +264,38 @@ public:
   }
 
   NodeOps forwardOps() override {
-    return {NodeOp(relu(val_, child(0)->val()))};
+    return {NodeOp(kernel(val_, child(0)->val()))};
   }
 
   const std::string type() override { return "intReLU"; }
 
 private:
-  static void relu(marian::Tensor output, const marian::Tensor input) {
+  static inline void kernel(marian::Tensor output, const marian::Tensor input) {
+    using vec_t = __m256i;
+
     static const auto const_zero = _mm256_setzero_si256();
 
-    auto input_it = input->data<__m256i>();
-    auto output_it = output->data<__m256i>();
-    auto lenght = input->shape().elements() / sizeof(__m256i) * sizeOf(Type_);
+    auto input_it = input->data<vec_t>();
+    auto output_it = output->data<vec_t>();
+
+    const std::size_t length = output->shape().elements() / (sizeof(vec_t) / sizeOf(Type_));
+    std::size_t i = 0;
 
     if (Type_ == Type::int8) {
-      for (auto i = 0; i < lenght; ++i)
+      for (auto i = 0; i < length; ++i)
         *output_it++ = _mm256_max_epi8(*input_it++, const_zero);
     } else if (Type_ == Type::int16) {
-      for (auto i = 0; i < lenght; ++i)
+      for (auto i = 0; i < length; ++i)
         *output_it++ = _mm256_max_epi16(*input_it++, const_zero);
+    }
+
+    i *= sizeof(vec_t) / sizeOf(Type_);
+    if (Type_ == Type::int8) {
+      for(; i < output->shape().elements(); ++i)
+        output->data<int8_t>()[i] = std::max(input->data<int8_t>()[i], int8_t(0));
+    } else if (Type_ == Type::int16) {
+      for(; i < output->shape().elements(); ++i)
+        output->data<int16_t>()[i] = std::max(input->data<int16_t>()[i], int16_t(0));
     }
   }
 };
@@ -303,17 +316,243 @@ public:
 
 private:
   static inline void kernel(Tensor output, const Tensor input, const Tensor unquant_mult) {
-    // TODO: Vectorize it.
+    using vi = __m256i;
+    using vf = __m256;
+
+    auto input_it = input->data<vi>();
+    auto vunquant_mult = intgemm::set1_ps<vf>(*unquant_mult->data());
+    auto output_it = output->data<vf>();
+
+    const std::size_t length = output->shape().elements() / (sizeof(vi) / sizeOf(Type_));
+    std::size_t i = 0;
+
     if (Type_ == Type::int8) {
-      for (auto i = 0; i < output->shape().elements(); ++i) {
-        output->data()[i] = input->data<int8_t>()[i] * *unquant_mult->data();
+      for (; i < length; ++i) {
+        auto upcasted = intgemm::kernels::upcast8to32(*input_it++);
+        *output_it++ = intgemm::kernels::unquantize(upcasted.first, vunquant_mult);
+        *output_it++ = intgemm::kernels::unquantize(upcasted.second, vunquant_mult);
+        *output_it++ = intgemm::kernels::unquantize(upcasted.third, vunquant_mult);
+        *output_it++ = intgemm::kernels::unquantize(upcasted.fourth, vunquant_mult);
       }
     } else if (Type_ == Type::int16) {
-      for (auto i = 0; i < output->shape().elements(); ++i) {
-        output->data()[i] = input->data<int16_t>()[i] * *unquant_mult->data();
+      for (; i < length; ++i) {
+        auto upcasted = intgemm::kernels::upcast8to32(*input_it++);
+        *output_it++ = intgemm::kernels::unquantize(upcasted.first, vunquant_mult);
+        *output_it++ = intgemm::kernels::unquantize(upcasted.second, vunquant_mult);
       }
     }
+
+    // TODO: tail?
   }
+};
+
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class ElemwiseAddNodeOp : public OnlyForInferenceNodeOp {
+public:
+  ElemwiseAddNodeOp(Expr a, Expr b) : OnlyForInferenceNodeOp({a, b}) {
+    ABORT_IF(child(0) == nullptr, "A cannot be null");
+    ABORT_IF(child(1) == nullptr, "B cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(kernel(val_, child(0)->val(), child(1)->val()))};
+  }
+
+  const std::string type() override { return "intElemwiseAdd"; }
+
+private:
+  static inline void kernel(Tensor output, const Tensor a, const Tensor b) {
+    using vec_t = __m256i;
+
+    auto a_it = a->data<vec_t>();
+    auto b_it = a->data<vec_t>();
+    auto output_it = output->data<vec_t>();
+
+    const std::size_t length = output->shape().elements() / (sizeof(vec_t) / sizeOf(Type_));
+    std::size_t i = 0;
+
+    if (Type_ == Type::int8) {
+      for (; i < length; ++i)
+        *output_it++ = _mm256_add_epi8(*a_it++, *b_it++);
+    } else if (Type_ == Type::int16) {
+      for (; i < length; ++i)
+        *output_it++ = _mm256_add_epi16(*a_it++, *b_it++);
+    }
+
+    i *= sizeof(vec_t) / sizeOf(Type_);
+    if (Type_ == Type::int8) {
+      for(; i < output->shape().elements(); ++i)
+        output->data<int8_t>()[i] = a->data<int8_t>()[i] + b->data<int8_t>()[i];
+    } else if (Type_ == Type::int16) {
+      for(; i < output->shape().elements(); ++i)
+        output->data<int16_t>()[i] = a->data<int16_t>()[i] + b->data<int16_t>()[i];
+    }
+  }
+};
+
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class ElemwiseMulNodeOp : public OnlyForInferenceNodeOp {
+private:
+  unsigned right_shift_;
+
+public:
+  ElemwiseMulNodeOp(Expr a, Expr b, unsigned right_shift) : OnlyForInferenceNodeOp({a, b}), right_shift_(right_shift) {
+    ABORT_IF(child(0) == nullptr, "A cannot be null");
+    ABORT_IF(child(1) == nullptr, "B cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(kernel(val_, child(0)->val(), child(1)->val(), right_shift_))};
+  }
+
+  const std::string type() override { return "intElemwiseMul"; }
+
+private:
+  static inline void kernel(Tensor output, const Tensor a, const Tensor b, unsigned right_shift) {
+    using vec_t = __m256i;
+
+    auto a_it = a->data<vec_t>();
+    auto b_it = a->data<vec_t>();
+    auto output_it = output->data<vec_t>();
+
+    const std::size_t length = output->shape().elements() / (sizeof(vec_t) / sizeOf(Type_));
+    std::size_t i = 0;
+
+    if (Type_ == Type::int8) {
+      for (; i < length; ++i)
+        *output_it++ = intgemm::kernels::multiply_sat<int8_t>(*a_it++, *b_it++, right_shift);
+    } else if (Type_ == Type::int16) {
+      for (; i < length; ++i)
+        *output_it++ = intgemm::kernels::multiply_sat<int16_t>(*a_it++, *b_it++, right_shift);
+    }
+
+    // TODO: tail?
+  }
+};
+
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class ElemwiseRescaleNodeOp : public OnlyForInferenceNodeOp {
+public:
+  ElemwiseRescaleNodeOp(Expr input, Expr scale) : OnlyForInferenceNodeOp({input, scale}) {
+    ABORT_IF(child(0) == nullptr, "Input cannot be null");
+    ABORT_IF(child(1) == nullptr, "Scale cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(kernel(val_, child(0)->val(), child(1)->val()))};
+  }
+
+  const std::string type() override { return "intElemwiseRescale"; }
+
+private:
+  static inline void kernel(Tensor output, const Tensor input, const Tensor scale) {
+    using vi = __m256i;
+    using vf = __m256;
+
+    auto input_it = input->data<vi>();
+    auto scale_it = scale->data<vf>();
+    auto output_it = output->data<vi>();
+
+    const std::size_t length = output->shape().elements() / (sizeof(vi) / sizeOf(Type_));
+    std::size_t i = 0;
+
+    if (Type_ == Type::int8) {
+      for (; i < length; ++i) {
+        auto upcasted = intgemm::kernels::upcast8to32(*input_it++);
+        *output_it++ = intgemm::kernels::downcast32to8(
+          intgemm::kernels::rescale(upcasted.first, *scale_it),
+          intgemm::kernels::rescale(upcasted.second, *scale_it),
+          intgemm::kernels::rescale(upcasted.third, *scale_it),
+          intgemm::kernels::rescale(upcasted.fourth, *scale_it));
+        ++scale_it;
+      }
+    } else if (Type_ == Type::int16) {
+      for (; i < length; ++i) {
+        auto upcasted = intgemm::kernels::upcast16to32(*input_it++);
+        *output_it++ = intgemm::kernels::downcast32to16(
+          intgemm::kernels::rescale(upcasted.first, *scale_it),
+          intgemm::kernels::rescale(upcasted.second, *scale_it));
+        ++scale_it;
+      }
+    }
+
+    i *= sizeof(vi) / sizeOf(Type_);
+    if (Type_ == Type::int8) {
+      for(; i < output->shape().elements(); ++i)
+        output->data<int8_t>()[i] = std::min<int>(std::max<int>(std::numeric_limits<int8_t>::min(), input->data<int8_t>()[i] * scale->data()[i]), std::numeric_limits<int8_t>::max());
+    } else if (Type_ == Type::int16) {
+      for(; i < output->shape().elements(); ++i)
+        output->data<int16_t>()[i] = std::min<int>(std::max<int>(std::numeric_limits<int16_t>::min(), input->data<int16_t>()[i] * scale->data()[i]), std::numeric_limits<int16_t>::max());
+    }
+  }
+};
+
+// int8_t is hardcoded for now
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class SSRUSigmoidFNodeOp : public OnlyForInferenceNodeOp {
+public:
+  SSRUSigmoidFNodeOp(Expr input, Expr Wf, Expr bf, Expr scale, Expr sigmoid_lut) : OnlyForInferenceNodeOp({input, Wf, bf, scale, sigmoid_lut}) {
+    ABORT_IF(child(0) == nullptr, "Input cannot be null");
+    ABORT_IF(child(1) == nullptr, "Wf cannot be null");
+    ABORT_IF(child(2) == nullptr, "bf cannot be null");
+    ABORT_IF(child(3) == nullptr, "scale cannot be null");
+    ABORT_IF(child(4) == nullptr, "Sigmoid LUT cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(
+      using Integer = typename backend<Type_>::Integer;
+      using intgemm::callbacks::SSRUSigmoidF;
+
+      auto input = child(0)->val();
+      auto Wf = child(1)->val();
+      auto bf = child(2)->val();
+      auto scale = *child(3)->val()->data();
+      auto sigmoid_lut = child(4)->val();
+      backend<Type_>::Multiply(
+          (const Integer*)input->data(),
+          (const Integer*)Wf->data(),
+          rows(input),
+          cols(input), // Shared dimension.
+          cols(Wf),
+          SSRUSigmoidF<int8_t>(bf->data<int8_t>(), scale, sigmoid_lut->data<int8_t>(), val_->data<int8_t>()));
+    )};
+  }
+
+  const std::string type() override { return "intSSRUSigmoidF"; }
+};
+
+// int8_t is hardcoded for now
+template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
+class SSRUPrecomputedPartOfHighwayNodeOp : public OnlyForInferenceNodeOp {
+public:
+  SSRUPrecomputedPartOfHighwayNodeOp(Expr input, Expr W, Expr sigmoid_f, Expr scale) : OnlyForInferenceNodeOp({input, W, sigmoid_f, scale}) {
+    ABORT_IF(child(0) == nullptr, "Input cannot be null");
+    ABORT_IF(child(1) == nullptr, "W cannot be null");
+    ABORT_IF(child(2) == nullptr, "SigmoidF cannot be null");
+    ABORT_IF(child(3) == nullptr, "Scale cannot be null");
+  }
+
+  NodeOps forwardOps() override {
+    return {NodeOp(
+      using Integer = typename backend<Type_>::Integer;
+      using intgemm::callbacks::SSRUPrecomputedPartOfHighway;
+
+      auto input = child(0)->val();
+      auto W = child(1)->val();
+      auto sigmoid_f = child(2)->val();
+      auto scale = *child(3)->val()->data();
+      backend<Type_>::Multiply(
+          (const Integer*)input->data(),
+          (const Integer*)W->data(),
+          rows(input),
+          cols(input), // Shared dimension.
+          cols(W),
+          SSRUPrecomputedPartOfHighway<int8_t>(sigmoid_f->data<int8_t>(), scale, val_->data<int8_t>()));
+    )};
+  }
+
+  const std::string type() override { return "intSSRUPrecomputedPartOfHighway"; }
 };
 
 template <Type Type_, typename = EnableIfTypeIsSupported<Type_>>
@@ -341,6 +580,21 @@ struct ops {
   }
   static inline Expr unquantize(Expr input, Expr unquant_mult) {
     return Expression<UnquantizeNodeOp<Type_>>(input, unquant_mult);
+  }
+  static inline Expr elemwiseAdd(Expr a, Expr b) {
+    return Expression<ElemwiseAddNodeOp<Type_>>(a, b);
+  }
+  static inline Expr elemwiseMul(Expr a, Expr b, int scale = 1) {
+    return Expression<ElemwiseMulNodeOp<Type_>>(a, b, scale);
+  }
+  static inline Expr elemwiseRescale(Expr input, Expr scale) {
+    return Expression<ElemwiseRescaleNodeOp<Type_>>(input, scale);
+  }
+  static inline Expr SSRUSigmoidF(Expr input, Expr Wf, Expr bf, Expr scale, Expr sigmoid_lut) {
+    return Expression<SSRUSigmoidFNodeOp<Type_>>(input, Wf, bf, scale, sigmoid_lut);
+  }
+  static inline Expr SSRUPrecomputedPartOfHighway(Expr input, Expr W, Expr sigmoid_f, Expr scale) {
+    return Expression<SSRUPrecomputedPartOfHighwayNodeOp<Type_>>(input, W, sigmoid_f, scale);
   }
 };
 
