@@ -4,6 +4,7 @@
 #include "common/types.h"
 
 #include <string>
+#include <cmath>
 
 namespace marian {
 namespace io {
@@ -48,7 +49,7 @@ struct Item {
     bytes.insert(bytes.end(), other.bytes.begin(), other.bytes.begin() + addbytesWithoutPadding);
 
     // grow to align to 256 bytes boundary (will be undone when more pieces are appended)
-    size_t multiplier = (size_t)ceil((float)bytes.size() / (float)256);
+    size_t multiplier = (size_t)std::ceil((float)bytes.size() / (float)256);
     bytes.resize(multiplier * 256);
   }
 

@@ -6,10 +6,11 @@
 #include <array>
 #include <iostream>
 #include <sstream>
-#include <string>
 #include <set>
+#include <map>
 #if defined(__unix__) || defined(__APPLE__)
 #include <unistd.h>
+#include <limits.h>
 #endif
 #include <codecvt>
 #include <cwctype>

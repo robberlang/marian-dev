@@ -4,6 +4,7 @@
 #include "hypothesis.h"
 
 #include <queue>
+#include <cmath>
 
 namespace marian {
 

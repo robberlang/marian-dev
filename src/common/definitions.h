@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include <fmt/format.h>
+
 // The macro MAYBE_UNUSED is used to selectively disable
 // unused-variable warnings. C++17 defines the attribute
 // [[maybe_unused]], but I don't think we're at C++17 yet. We can add it when we reach C++17.
@@ -155,3 +157,13 @@ typedef Ptr<RunBase> RunBasePtr;
 
 const float NEMATUS_LN_EPS = 1e-5f;
 }  // namespace marian
+
+template <>
+struct fmt::formatter<marian::DeviceId> {
+  auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const marian::DeviceId& deviceId, FormatContext& ctx) -> decltype(ctx.out()) {
+    return fmt::format_to(ctx.out(), "{}", std::string(deviceId));
+  }
+};

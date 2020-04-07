@@ -3,6 +3,7 @@
 #include "common/config.h"
 #include "common/definitions.h"
 #include "common/file_stream.h"
+#include "data/corpus_base.h"
 
 #include <random>
 #include <unordered_map>

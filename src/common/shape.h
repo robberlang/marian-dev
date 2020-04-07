@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <climits>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "common/hash.h"
 #include "common/logging.h"
@@ -234,3 +237,15 @@ public:
   }
 };
 }  // namespace marian
+
+template <>
+struct fmt::formatter<marian::Shape> {
+  auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) {
+    return ctx.begin();
+  }
+
+  template <typename FormatContext>
+  auto format(const marian::Shape& shape, FormatContext& ctx) -> decltype(ctx.out()) {
+    return fmt::format_to(ctx.out(), "{}", shape.toString());
+  }
+};

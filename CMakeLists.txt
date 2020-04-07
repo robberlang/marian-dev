@@ -405,6 +405,13 @@ if(BOOST_COMPONENTS)
 endif(BOOST_COMPONENTS)
 
 ###############################################################################
+# Find fmt and spdlog
+find_package(fmt REQUIRED)
+find_package(spdlog REQUIRED)
+set(EXT_LIBS ${EXT_LIBS} fmt::fmt spdlog::spdlog)
+add_definitions(-DSPDLOG_FMT_EXTERNAL)
+
+###############################################################################
 if(COMPILE_TESTS)
   enable_testing()
 endif(COMPILE_TESTS)

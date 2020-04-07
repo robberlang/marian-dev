@@ -4,7 +4,6 @@
 
 #include "spdlog/spdlog.h"
 
-
 namespace marian {
   void logCallStack(size_t skipLevels);
   std::string getCallStack(size_t skipLevels);
@@ -85,23 +84,23 @@ namespace marian {
  *
  * @param ... Message text and variables
  */
-#define ABORT(...)                                                               \
-  do {                                                                           \
-    auto logger = spdlog::get("general");                                        \
-    if(logger == nullptr)                                                        \
-      logger = createStderrLogger("general", "[%Y-%m-%d %T] Error: %v");         \
-    else                                                                         \
-      logger->set_pattern("[%Y-%m-%d %T] Error: %v");                            \
-    checkedLog("general", "critical", __VA_ARGS__);                              \
-    checkedLog("general", "critical", "Aborted from {} in {}:{}",                \
-               FUNCTION_NAME, __FILE__, __LINE__);                               \
-    logger->set_pattern("%v");                                                   \
-    auto callStack = marian::getCallStack(/*skipLevels=*/0);                     \
-    checkedLog("general", "critical", callStack);                                \
-    if(marian::getThrowExceptionOnAbort())                                       \
-      throw marian::MarianRuntimeException(fmt::format(__VA_ARGS__), callStack); \
-    else                                                                         \
-      std::abort();                                                              \
+#define ABORT(...)                                                                    \
+  do {                                                                                \
+    auto logger = spdlog::get("general");                                             \
+    if(logger == nullptr)                                                             \
+      logger = createStderrLogger("general", "[%Y-%m-%d %T.%e] [%t] [%l] Error: %v"); \
+    else                                                                              \
+      logger->set_pattern("[%Y-%m-%d %T.%e] [%t] [%l] Error: %v");                    \
+    checkedLog("general", "critical", __VA_ARGS__);                                   \
+    checkedLog("general", "critical", "Aborted from {} in {}:{}",                     \
+               FUNCTION_NAME, __FILE__, __LINE__);                                    \
+    logger->set_pattern("%v");                                                        \
+    auto callStack = marian::getCallStack(/*skipLevels=*/0);                          \
+    checkedLog("general", "critical", callStack);                                     \
+    if(marian::getThrowExceptionOnAbort())                                            \
+      throw marian::MarianRuntimeException(fmt::format(__VA_ARGS__), callStack);      \
+    else                                                                              \
+      std::abort();                                                                   \
   } while(0)
 
 /**

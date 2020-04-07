@@ -4,6 +4,8 @@
 #include "common/filesystem.h"
 #include "common/utils.h"
 
+#include <fmt/format.h>
+
 #include <fstream>
 #include <vector>
 
@@ -306,8 +308,6 @@ public:
   }
 
   std::string fillTemplate(const std::string& templ) const {
-    // The formatting below uses fmtlib, which is included with spdlog
-    // and is included via the logger.
     return fmt::format(templ.c_str(),
                        fmt::arg("E", epochs),
                        fmt::arg("U", batches),
