@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "data/batch_generator.h"
 #include "data/corpus.h"
 #include "data/shortlist.h"
@@ -16,7 +18,11 @@
 
 // currently for diagnostics only, will try to mmap files ending in *.bin suffix when enabled.
 // @TODO: add this as an actual feature.
+#ifdef CUDA_FOUND
 #define MMAP 0
+#else
+#define MMAP 1
+#endif
 
 #if MMAP
 #include "3rd_party/mio/mio.hpp"
@@ -138,13 +144,9 @@ public:
     bool doNbest = options_->get<bool>("n-best");
     for(auto batch : bg) {
       auto task = [=](size_t id) {
-        thread_local Ptr<ExpressionGraph> graph;
-        thread_local std::vector<Ptr<Scorer>> scorers;
-
-        if(!graph) {
-          graph = graphs_[id % numDevices_];
-          scorers = scorers_[id % numDevices_];
-        }
+        size_t deviceIndex = id % numDevices_;
+        thread_local Ptr<ExpressionGraph> graph = graphs_[deviceIndex];
+        thread_local std::vector<Ptr<Scorer>> scorers = scorers_[deviceIndex];
 
         auto search = New<Search>(options_, scorers, trgVocab_);
         auto histories = search->search(graph, batch);
@@ -172,7 +174,6 @@ public:
       };
 
       threadPool.enqueue(task, batchId++);
-
     }
   }
 };
@@ -187,11 +188,29 @@ private:
   std::vector<Ptr<Vocab>> srcVocabs_;
   Ptr<Vocab> trgVocab_;
   Ptr<const data::ShortlistGenerator> shortlistGenerator_;
+  std::unique_ptr<ThreadPool> threadPool_;
 
   size_t numDevices_;
 
+#if MMAP
+  Ptr<std::vector<mio::mmap_source>> mmaps_;
+#endif
+
 public:
   virtual ~TranslateService() {}
+
+  TranslateService(const TranslateService& other)
+      : options_(other.options_),
+        srcVocabs_(other.srcVocabs_),
+        trgVocab_(other.trgVocab_),
+        shortlistGenerator_(other.shortlistGenerator_)
+#if MMAP
+        ,
+        mmaps_(other.mmaps_)
+#endif
+  {
+    initScorers();
+  }
 
   TranslateService(Ptr<Options> options)
     : options_(New<Options>(options->clone())) {
@@ -216,32 +235,17 @@ public:
       shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
           options_, srcVocabs_.front(), trgVocab_, 0, 1, vocabPaths.front() == vocabPaths.back());
 
-    // get device IDs
-    auto devices = Config::getDevices(options_);
-    numDevices_ = devices.size();
-
-    // initialize scorers
-    for(auto device : devices) {
-      auto graph = New<ExpressionGraph>(true);
-
-      auto precison = options_->get<std::vector<std::string>>("precision", {"float32"});
-      graph->setDefaultElementType(typeFromString(precison[0])); // only use first type, used for parameter type in graph
-      graph->setDevice(device);
-      graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
-      if (device.type == DeviceType::cpu) {
-        graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
-      }
-      graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
-      graphs_.push_back(graph);
-
-      auto scorers = createScorers(options_);
-      for(auto scorer : scorers) {
-        scorer->init(graph);
-        if(shortlistGenerator_)
-          scorer->setShortlistGenerator(shortlistGenerator_);
-      }
-      scorers_.push_back(scorers);
+#if MMAP
+    mmaps_ = New<std::vector<mio::mmap_source>>();
+    auto models = options->get<std::vector<std::string>>("models");
+    for(auto model : models) {
+      marian::filesystem::Path modelPath(model);
+      ABORT_IF(modelPath.extension() != marian::filesystem::Path(".bin"),
+               "Non-binarized models cannot be mmapped");
+      mmaps_->push_back(std::move(mio::mmap_source(model)));
     }
+#endif
+    initScorers();
   }
 
   std::string run(const std::string& input) override {
@@ -250,42 +254,73 @@ public:
 
     auto collector = New<StringCollector>();
     auto printer = New<OutputPrinter>(options_, trgVocab_);
+    std::vector<std::future<void>> futures;
     size_t batchId = 0;
 
     batchGenerator.prepare();
 
-    {
-      ThreadPool threadPool_(numDevices_, numDevices_);
+    for(auto batch : batchGenerator) {
+      auto task = [=](size_t id) {
+        size_t deviceIndex = id % numDevices_;
+        thread_local Ptr<ExpressionGraph> graph = graphs_[deviceIndex];
+        thread_local std::vector<Ptr<Scorer>> scorers = scorers_[deviceIndex];
 
-      for(auto batch : batchGenerator) {
+        auto search = New<Search>(options_, scorers, trgVocab_);
+        auto histories = search->search(graph, batch);
 
-        auto task = [=](size_t id) {
-          thread_local Ptr<ExpressionGraph> graph;
-          thread_local std::vector<Ptr<Scorer>> scorers;
+        for(auto history : histories) {
+          std::stringstream best1;
+          std::stringstream bestn;
+          printer->print(history, best1, bestn);
+          collector->add((long)history->getLineNum(), best1.str(), bestn.str());
+        }
+      };
 
-          if(!graph) {
-            graph = graphs_[id % numDevices_];
-            scorers = scorers_[id % numDevices_];
-          }
+      futures.push_back(threadPool_->enqueue(task, batchId++));
+    }
 
-          auto search = New<Search>(options_, scorers, trgVocab_);
-          auto histories = search->search(graph, batch);
-
-          for(auto history : histories) {
-            std::stringstream best1;
-            std::stringstream bestn;
-            printer->print(history, best1, bestn);
-            collector->add((long)history->getLineNum(), best1.str(), bestn.str());
-          }
-        };
-
-        threadPool_.enqueue(task, batchId);
-        batchId++;
-      }
+    for(auto& f : futures) {
+      f.wait();
     }
 
     auto translations = collector->collect(options_->get<bool>("n-best"));
     return utils::join(translations, "\n");
+  }
+
+private:
+  void initScorers() {
+    // get device IDs
+    auto devices = Config::getDevices(options_);
+    numDevices_ = devices.size();
+    threadPool_ = std::make_unique<ThreadPool>(numDevices_, numDevices_);
+
+    // initialize scorers
+    for(auto device : devices) {
+      auto graph = New<ExpressionGraph>(true);
+
+      auto precison = options_->get<std::vector<std::string>>("precision", {"float32"});
+      graph->setDefaultElementType(
+          typeFromString(precison[0]));  // only use first type, used for parameter type in graph
+      graph->setDevice(device);
+      graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
+      if(device.type == DeviceType::cpu) {
+        graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
+      }
+      graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
+      graphs_.push_back(graph);
+
+#if MMAP
+      auto scorers = createScorers(options_, *mmaps_);
+#else
+      auto scorers = createScorers(options_);
+#endif
+      for(auto scorer : scorers) {
+        scorer->init(graph);
+        if(shortlistGenerator_)
+          scorer->setShortlistGenerator(shortlistGenerator_);
+      }
+      scorers_.push_back(scorers);
+    }
   }
 };
 }  // namespace marian
