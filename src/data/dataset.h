@@ -26,7 +26,7 @@ public:
   typedef SampleType Sample;
 
   DatasetBase(std::vector<std::string> paths, Ptr<Options> options)
-      : paths_(paths),
+      : paths_(std::move(paths)),
         options_(options),
         inference_(options != nullptr ? options->get<bool>("inference", false) : false) {}
 

@@ -17,6 +17,7 @@ private:
   std::vector<Ptr<Scorer>> scorers_;
   size_t beamSize_;
   Ptr<const Vocab> trgVocab_;
+  bool getAlignment_;
 
   const float INVALID_PATH_SCORE = std::numeric_limits<float>::lowest(); // @TODO: observe this closely
   const bool PURGE_BATCH = true; // @TODO: diagnostic, to-be-removed once confirmed there are no issues.
@@ -28,7 +29,11 @@ public:
       : options_(options),
         scorers_(scorers),
         beamSize_(options_->get<size_t>("beam-size")),
-        trgVocab_(trgVocab) {}
+        trgVocab_(trgVocab),
+        getAlignment_(options_->hasAndNotEmpty("alignment")
+                      || (ConvertInputFormat(options_->get<std::string>("input-format", ""))
+                              != InputFormat::PLAINTEXT
+                          && !options_->get<bool>("entitize-tags", false))) {}
 
   // combine new expandedPathScores and previous beams into new set of beams
   Beams toHyps(const std::vector<unsigned int>& nBestKeys, // [currentDimBatch, beamSize] flattened -> ((batchIdx, beamHypIdx) flattened, word idx) flattened
@@ -42,7 +47,7 @@ public:
                const std::vector<bool>& dropBatchEntries, // [origDimBatch] - empty source batch entries are marked with true, should be cleared after first use.
                const std::vector<IndexType>& batchIdxMap) const { // [origBatchIdx -> currentBatchIdx]
     std::vector<float> align; // collects alignment information from the last executed time step
-    if(options_->hasAndNotEmpty("alignment") && factorGroup == 0)
+    if(getAlignment_ && factorGroup == 0)
       align = scorers_[0]->getAlignment(); // [beam depth * max src length * current batch size] -> P(s|t); use alignments from the first scorer, even if ensemble,
 
     const auto origDimBatch = beams.size(); // see function search for definition of origDimBatch and currentDimBatch etc.
@@ -295,7 +300,9 @@ public:
     Histories histories(origDimBatch);
     for(int i = 0; i < origDimBatch; ++i) {
       size_t sentId = batch->getSentenceIds()[i];
+      const auto& sentTags = batch->getSentenceTags()[i];
       histories[i] = New<History>(sentId,
+                                  sentTags,
                                   options_->get<float>("normalize"),
                                   options_->get<float>("word-penalty"));
     }
@@ -444,7 +451,13 @@ public:
             //  LOG(info, "prevWords[{},{}]={} -> {}", t/numFactorGroups, factorGroup,
             //      factoredVocab ? factoredVocab->word2string(prevWords[kk]) : (*batch->back()->vocab())[prevWords[kk]],
             //      prevScores[kk]);
-            states[i] = scorers_[i]->step(graph, states[i], hypIndices, prevWords, batchIndices, (int)maxBeamSize);
+            states[i] = scorers_[i]->step(graph,
+                                          states[i],
+                                          hypIndices,
+                                          prevWords,
+                                          batchIndices,
+                                          (int)maxBeamSize,
+                                          getAlignment_);
             if (numFactorGroups == 1) // @TODO: this branch can go away
               logProbs = states[i]->getLogProbs().getLogits(); // [maxBeamSize, 1, currentDimBatch, dimVocab]
             else

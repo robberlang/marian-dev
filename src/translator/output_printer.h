@@ -21,11 +21,13 @@ public:
                    : 0),
         alignment_(options->get<std::string>("alignment", "")),
         alignmentThreshold_(getAlignmentThreshold(alignment_)),
-        wordScores_(options->get<bool>("word-scores")) {}
+        wordScores_(options->get<bool>("word-scores")),
+        entitizeTags_(options->get<bool>("entitize-tags")) {}
 
   template <class OStream>
   void print(Ptr<const History> history, OStream& best1, OStream& bestn) {
     const auto& nbl = history->nBest(nbest_);
+    const auto& lineTags = history->getLineTags();
 
     // prepare n-best list output
     for(size_t i = 0; i < nbl.size(); ++i) {
@@ -33,14 +35,17 @@ public:
       const auto& hypo = std::get<1>(result);
       auto words = std::get<0>(result);
 
-      if(reverse_)
-        std::reverse(words.begin(), words.end());
+      auto align = getSoftAlignment(hypo);
+      Words wordsWithTags = reinsertTags(words, align, lineTags);
 
-      std::string translation = vocab_->decode(words);
+      if(reverse_)
+        std::reverse(wordsWithTags.begin(), wordsWithTags.end());
+
+      std::string translation = vocab_->decode(wordsWithTags);
       bestn << history->getLineNum() << " ||| " << translation;
 
       if(!alignment_.empty())
-        bestn << " ||| " << getAlignment(hypo);
+        bestn << " ||| " << getAlignment(align);
 
       if(wordScores_)
         bestn << " ||| WordScores=" << getWordScores(hypo);
@@ -66,19 +71,21 @@ public:
     auto result = history->top();
     auto words = std::get<0>(result);
 
-    if(reverse_)
-      std::reverse(words.begin(), words.end());
+    const auto& hypo = std::get<1>(result);
+    auto align = getSoftAlignment(hypo);
+    Words wordsWithTags = reinsertTags(words, align, lineTags);
 
-    std::string translation = vocab_->decode(words);
+    if(reverse_)
+      std::reverse(wordsWithTags.begin(), wordsWithTags.end());
+
+    std::string translation = vocab_->decode(wordsWithTags);
 
     best1 << translation;
     if(!alignment_.empty()) {
-      const auto& hypo = std::get<1>(result);
-      best1 << " ||| " << getAlignment(hypo);
+      best1 << " ||| " << getAlignment(align);
     }
 
     if(wordScores_) {
-      const auto& hypo = std::get<1>(result);
       best1 << " ||| WordScores=" << getWordScores(hypo);
     }
 
@@ -92,11 +99,16 @@ private:
   std::string alignment_;          // A non-empty string indicates the type of word alignment
   float alignmentThreshold_{0.f};  // Threshold for converting attention into hard word alignment
   bool wordScores_{false};         // Whether to print word-level scores or not
+  bool entitizeTags_{false};
 
+  data::SoftAlignment getSoftAlignment(const Hypothesis::PtrType& hyp);
   // Get word alignment pairs or soft alignment
-  std::string getAlignment(const Hypothesis::PtrType& hyp);
+  std::string getAlignment(const data::SoftAlignment& align);
   // Get word-level scores
   std::string getWordScores(const Hypothesis::PtrType& hyp);
+  Words reinsertTags(const Words& words,
+                     const data::SoftAlignment& align,
+                     const std::vector<std::pair<Word, size_t>>& lineTags);
 
   float getAlignmentThreshold(const std::string& str) {
     try {

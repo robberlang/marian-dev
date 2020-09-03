@@ -24,7 +24,10 @@ public:
                                        std::vector<Ptr<EncoderState>>&)
       = 0;
 
-  virtual Ptr<DecoderState> step(Ptr<ExpressionGraph>, Ptr<DecoderState>) = 0;
+  virtual Ptr<DecoderState> step(Ptr<ExpressionGraph>,
+                                 Ptr<DecoderState> state,
+                                 bool getAlignment = false)
+      = 0;
 
   virtual void embeddingsFromBatch(Ptr<ExpressionGraph> graph,
                                    Ptr<DecoderState> state,

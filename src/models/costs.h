@@ -288,13 +288,16 @@ public:
     return encdec_->startState(graph, batch);
   }
 
-  virtual Ptr<DecoderState> step(Ptr<ExpressionGraph> graph,
-                                 Ptr<DecoderState> state,
-                                 const std::vector<IndexType>& hypIndices,   // [beamIndex * activeBatchSize + batchIndex]
-                                 const Words& words,                         // [beamIndex * activeBatchSize + batchIndex]
-                                 const std::vector<IndexType>& batchIndices, // [batchIndex]
-                                 int beamSize) override {
-    auto nextState = encdec_->step(graph, state, hypIndices, words, batchIndices, beamSize);
+  virtual Ptr<DecoderState> step(
+      Ptr<ExpressionGraph> graph,
+      Ptr<DecoderState> state,
+      const std::vector<IndexType>& hypIndices,    // [beamIndex * activeBatchSize + batchIndex]
+      const Words& words,                          // [beamIndex * activeBatchSize + batchIndex]
+      const std::vector<IndexType>& batchIndices,  // [batchIndex]
+      int beamSize,
+      bool getAlignment) override {
+    auto nextState
+        = encdec_->step(graph, state, hypIndices, words, batchIndices, beamSize, getAlignment);
     return cost_->apply(nextState);
   }
 

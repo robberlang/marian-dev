@@ -11,14 +11,54 @@
 
 namespace marian {
 
+enum class InputFormat : char {
+  PLAINTEXT = 0,
+  XLIFF1 = 1,
+  HTML = 2,
+};
+
+static inline InputFormat ConvertInputFormat(const std::string& inputFormat) {
+  if(inputFormat == "xliff1")
+    return InputFormat::XLIFF1;
+  if(inputFormat == "html")
+    return InputFormat::HTML;
+  return InputFormat::PLAINTEXT;
+}
+
+enum class TagType : char {
+  NONE = 0,
+  OPEN_TAG = 1,
+  CLOSE_TAG = 2,
+  EMPTY_TAG = 3,
+};
+
+class MarkupTag {
+  std::string tag_;
+  TagType type_;
+
+public:
+  MarkupTag(std::string tag, TagType type) : tag_(std::move(tag)), type_(type) {}
+  const std::string& getTag() const { return tag_; }
+  const TagType& getType() const { return type_; }
+};
+
 // Type for all vocabulary items, based on IndexType
 typedef IndexType WordIndex;    // WordIndex is used for words or tokens arranged in consecutive order
 class Word {                    // Word is an abstraction of a unique id, not necessarily consecutive
   WordIndex wordId_;
+  Ptr<MarkupTag> markupTag_;
   explicit Word(std::size_t wordId) : wordId_((WordIndex)wordId) {}
+  explicit Word(std::size_t wordId, const std::string& tag, TagType tagType)
+      : wordId_((WordIndex)wordId), markupTag_(New<MarkupTag>(tag, tagType)) {}
+
 public:
   static Word fromWordIndex(std::size_t wordId) { return Word(wordId); }
+  static Word fromWordIndexAndTag(std::size_t wordId, const std::string& tag, TagType tagType) {
+    return Word(wordId, tag, tagType);
+  }
   const WordIndex& toWordIndex() const { return wordId_; }
+  void setWordIndex(WordIndex wordId) { wordId_ = wordId; }
+  const Ptr<MarkupTag>& getMarkupTag() const { return markupTag_; };
   std::string toString() const { return std::to_string(wordId_); }
 
   // needed for STL containers

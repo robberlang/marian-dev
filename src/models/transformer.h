@@ -633,13 +633,13 @@ public:
   }
 
   virtual Ptr<DecoderState> step(Ptr<ExpressionGraph> graph,
-                                 Ptr<DecoderState> state) override {
+                                 Ptr<DecoderState> state, bool getAlignment = false) override {
     ABORT_IF(graph != graph_, "An inconsistent graph parameter was passed to step()");
     lazyCreateOutputLayer();
-    return step(state);
+    return step(state, getAlignment);
   }
 
-  Ptr<DecoderState> step(Ptr<DecoderState> state) {
+  Ptr<DecoderState> step(Ptr<DecoderState> state, bool getAlignment) {
     auto embeddings  = state->getTargetHistoryEmbeddings(); // [-4: beam depth=1, -3: max length, -2: batch size, -1: vector dim]
     auto decoderMask = state->getTargetMask();              // [max length, batch size, 1]  --this is a hypothesis
 
@@ -754,7 +754,7 @@ public:
           // decoding or scoring return the attention weights of one head of the last layer.
           // @TODO: maybe allow to return average or max over all heads?
           bool saveAttentionWeights = false;
-          if(j == 0 && (options_->get("guided-alignment", std::string("none")) != "none" || options_->hasAndNotEmpty("alignment"))) {
+          if(j == 0 && (getAlignment || options_->get("guided-alignment", std::string("none")) != "none")) {
             size_t attLayer = decDepth - 1;
             std::string gaStr = options_->get<std::string>("transformer-guided-alignment-layer", "last");
             if(gaStr != "last")

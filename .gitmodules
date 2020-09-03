@@ -6,7 +6,8 @@
 	url = https://github.com/marian-nmt/marian-regression-tests
 [submodule "src/3rd_party/sentencepiece"]
 	path = src/3rd_party/sentencepiece
-	url = https://github.com/marian-nmt/sentencepiece
+	url = https://github.com/robberlang/sentencepiece
+	branch = add_dummy_prefix_option_on_encode
 [submodule "src/3rd_party/nccl"]
 	path = src/3rd_party/nccl
 	url = https://github.com/marian-nmt/nccl

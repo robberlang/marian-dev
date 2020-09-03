@@ -40,12 +40,14 @@ public:
   virtual Ptr<DecoderState> startState(Ptr<ExpressionGraph> graph,
                                        Ptr<data::CorpusBatch> batch) = 0;
 
-  virtual Ptr<DecoderState> step(Ptr<ExpressionGraph> graph,
-                                 Ptr<DecoderState> state,
-                                 const std::vector<IndexType>& hypIndices,   // [beamIndex * activeBatchSize + batchIndex]
-                                 const Words& words,                         // [beamIndex * activeBatchSize + batchIndex]
-                                 const std::vector<IndexType>& batchIndices, // [batchIndex]
-                                 int beamSize)
+  virtual Ptr<DecoderState> step(
+      Ptr<ExpressionGraph> graph,
+      Ptr<DecoderState> state,
+      const std::vector<IndexType>& hypIndices,    // [beamIndex * activeBatchSize + batchIndex]
+      const Words& words,                          // [beamIndex * activeBatchSize + batchIndex]
+      const std::vector<IndexType>& batchIndices,  // [batchIndex]
+      int beamSize,
+      bool getAlignment)
       = 0;
 
   virtual Ptr<Options> getOptions() = 0;
@@ -150,7 +152,8 @@ public:
                                  const std::vector<IndexType>& hypIndices,
                                  const Words& words,
                                  const std::vector<IndexType>& batchIndices,
-                                 int beamSize) override;
+                                 int beamSize,
+                                 bool getAlignment) override;
 
   virtual Ptr<DecoderState> stepAll(Ptr<ExpressionGraph> graph,
                                     Ptr<data::CorpusBatch> batch,

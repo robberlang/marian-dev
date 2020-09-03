@@ -27,12 +27,12 @@ public:
       : graph_(graph), options_(options) {}
 
   template <typename T>
-  T opt(const std::string key) const {
+  T opt(const std::string& key) const {
     return options_->get<T>(key);
   }
 
   template <typename T>
-  T opt(const std::string key, const T& defaultValue) const {
+  T opt(const std::string& key, const T& defaultValue) const {
     return options_->get<T>(key, defaultValue);
   }
 };

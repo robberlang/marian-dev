@@ -248,9 +248,13 @@ public:
     initScorers();
   }
 
-  std::string run(const std::string& input) override {
-    auto corpus_ = New<data::TextInput>(std::vector<std::string>({input}), srcVocabs_, options_);
-    data::BatchGenerator<data::TextInput> batchGenerator(corpus_, options_);
+  std::string run(const std::string& input,
+                  const size_t beamSize,
+                  const std::string& inputFormat) override {
+    options_->set("beam-size", beamSize);
+    options_->set("input-format", inputFormat);
+    auto corpus = New<data::TextInput>(std::vector<std::string>({input}), srcVocabs_, options_);
+    data::BatchGenerator<data::TextInput> batchGenerator(corpus, options_);
 
     auto collector = New<StringCollector>();
     auto printer = New<OutputPrinter>(options_, trgVocab_);

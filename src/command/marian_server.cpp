@@ -15,21 +15,23 @@ int main(int argc, char **argv) {
   auto options = parseOptions(argc, argv, cli::mode::server, true);
   auto task = New<TranslateService<BeamSearch>>(options);
 
+  size_t beamSize = options->get<size_t>("beam-size");
+  std::string inputFormat = options->get<std::string>("input-format", "");
   // Initialize web server
   WSServer server;
   server.config.port = (short)options->get<size_t>("port", 8080);
 
   auto &translate = server.endpoint["^/translate/?$"];
 
-  translate.on_message = [&task](Ptr<WSServer::Connection> connection,
-                                 Ptr<WSServer::Message> message) {
+  translate.on_message = [&task, beamSize, &inputFormat](Ptr<WSServer::Connection> connection,
+                                                         Ptr<WSServer::Message> message) {
     // Get input text
     auto inputText = message->string();
     auto sendStream = std::make_shared<WSServer::SendStream>();
 
     // Translate
     timer::Timer timer;
-    auto outputText = task->run(inputText);
+    auto outputText = task->run(inputText, beamSize, inputFormat);
     LOG(info, "Best translation: {}", outputText);
     *sendStream << outputText << std::endl;
     LOG(info, "Translation took: {:.5f}s", timer.elapsed());

@@ -250,7 +250,8 @@ public:
   }
 
   virtual Ptr<DecoderState> step(Ptr<ExpressionGraph> graph,
-                                 Ptr<DecoderState> state) override {
+                                 Ptr<DecoderState> state,
+                                 bool /*getAlignment*/ = false) override {
 
     auto embeddings = state->getTargetHistoryEmbeddings();
 

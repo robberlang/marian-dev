@@ -613,6 +613,11 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
       "Allow unknown words to appear in output");
   cli.add<bool>("--n-best",
       "Generate n-best list");
+  cli.add<std::string>("--input-format",
+      "Input format. Possible values: plaintext, html, xliff1")
+    ->implicit_val("plaintext");
+  cli.add<bool>("--entitize-tags",
+      "Entitize tags. Assumes that training was done on entitized tags");
   cli.add<std::string>("--alignment",
      "Return word alignment. Possible values: 0.0-1.0, hard, soft")
     ->implicit_val("1");

@@ -223,8 +223,11 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
     if(maxDims.size() < ex.size())
       maxDims.resize(ex.size(), 0);
     for(size_t i = 0; i < ex.size(); ++i) {
-      if(ex[i].size() > (size_t)maxDims[i])
-        maxDims[i] = (int)ex[i].size();
+      int numWords = static_cast<int>(std::count_if(ex[i].begin(), ex[i].end(), [](const Word& w) {
+        return !w.getMarkupTag().operator bool();
+      }));
+      if(numWords > maxDims[i])
+        maxDims[i] = numWords;
     }
     sentenceIds.push_back(ex.getId());
   }
@@ -234,14 +237,24 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
     subBatches.emplace_back(New<SubBatch>(batchSize, maxDims[j], vocabs_[j]));
   }
 
+  std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags;
   std::vector<size_t> words(maxDims.size(), 0);
   for(size_t b = 0; b < batchSize; ++b) {                    // loop over batch entries
-    for(size_t j = 0; j < maxDims.size(); ++j) {             // loop over streams
+    sentenceTags.emplace_back();
+    for(size_t j = 0; j < maxDims.size(); ++j) {  // loop over streams
       auto subBatch = subBatches[j];
-      for(size_t s = 0; s < batchVector[b][j].size(); ++s) { // loop over word positions
-        subBatch->data()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/s)/*s * batchSize + b*/] = batchVector[b][j][s];
-        subBatch->mask()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/s)/*s * batchSize + b*/] = 1.f;
-        words[j]++;
+      for(size_t s = 0, t = 0; s < batchVector[b][j].size(); ++s) { // loop over word positions
+        const auto& markupTag = batchVector[b][j][s].getMarkupTag();
+        if(!markupTag) {
+          subBatch->data()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/t) /*t * batchSize + b*/]
+              = batchVector[b][j][s];
+          subBatch->mask()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/t) /*t * batchSize + b*/]
+              = 1.f;
+          words[j]++;
+          ++t;
+        } else {
+          sentenceTags.back().emplace_back(batchVector[b][j][s], t);
+        }
       }
     }
   }
@@ -251,6 +264,7 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
 
   auto batch = batch_ptr(new batch_type(subBatches));
   batch->setSentenceIds(sentenceIds);
+  batch->setSentenceTags(sentenceTags);
 
   if(options_->get("guided-alignment", std::string("none")) != "none" && alignFileIdx_)
     addAlignmentsToBatch(batch, batchVector);

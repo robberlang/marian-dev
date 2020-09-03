@@ -4,7 +4,6 @@
 #include "hypothesis.h"
 
 #include <queue>
-#include <cmath>
 
 namespace marian {
 
@@ -23,7 +22,10 @@ private:
   float lengthPenalty(size_t length) { return std::pow((float)length, alpha_); }
   float wordPenalty(size_t length) { return wp_ * (float)length; }
 public:
-  History(size_t lineNo, float alpha = 1.f, float wp_ = 0.f);
+  History(size_t lineNo,
+          std::vector<std::pair<Word, size_t>> lineTags,
+          float alpha = 1.f,
+          float wp_ = 0.f);
 
   void add(const Beam& beam, Word trgEosId, bool last = false) {
     if(beam.back()->getPrevHyp() != nullptr) { // if not start hyp do
@@ -63,11 +65,13 @@ public:
   }
 
   size_t getLineNum() const { return lineNo_; }
+  const std::vector<std::pair<Word, size_t>>& getLineTags() const { return lineTags_; }
 
 private:
   std::vector<Beam> history_; // [time step][index into beam] search grid @TODO: simplify as this is currently an expensive length count
   std::priority_queue<SentenceHypothesisCoord> topHyps_; // all sentence hypotheses (those that reached eos), sorted by score
   size_t lineNo_;
+  std::vector<std::pair<Word, size_t>> lineTags_;
   float alpha_;
   float wp_;
 };

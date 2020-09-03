@@ -20,10 +20,10 @@ const SentenceTuple& TextIterator::dereference() const {
   return tup_;
 }
 
-TextInput::TextInput(std::vector<std::string> inputs,
+TextInput::TextInput(const std::vector<std::string>& inputs,
                      std::vector<Ptr<Vocab>> vocabs,
                      Ptr<Options> options)
-    : DatasetBase(inputs, options), vocabs_(vocabs) {
+    : DatasetBase(inputs, options), vocabs_(std::move(vocabs)) {
   // note: inputs are automatically stored in the inherited variable named paths_, but these are
   // texts not paths!
   for(const auto& text : paths_)

@@ -74,8 +74,12 @@ public:
       if(maxDims.size() < ex.size())
         maxDims.resize(ex.size(), 0);
       for(size_t i = 0; i < ex.size(); ++i) {
-        if(ex[i].size() > (size_t)maxDims[i])
-          maxDims[i] = (int)ex[i].size();
+        int numWords
+            = static_cast<int>(std::count_if(ex[i].begin(), ex[i].end(), [](const Word& w) {
+                return !w.getMarkupTag().operator bool();
+              }));
+        if(numWords > maxDims[i])
+          maxDims[i] = numWords;
       }
       sentenceIds.push_back(ex.getId());
     }
@@ -85,13 +89,21 @@ public:
       subBatches.emplace_back(New<SubBatch>(batchSize, maxDims[j], vocabs_[j]));
     }
 
+    std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags;
     std::vector<size_t> words(maxDims.size(), 0);
     for(size_t i = 0; i < batchSize; ++i) {
+      sentenceTags.emplace_back();
       for(size_t j = 0; j < maxDims.size(); ++j) {
-        for(size_t k = 0; k < batchVector[i][j].size(); ++k) {
-          subBatches[j]->data()[k * batchSize + i] = batchVector[i][j][k];
-          subBatches[j]->mask()[k * batchSize + i] = 1.f;
-          words[j]++;
+        for(size_t k = 0, l = 0; k < batchVector[i][j].size(); ++k) {
+          const auto& markupTag = batchVector[i][j][k].getMarkupTag();
+          if(!markupTag) {
+            subBatches[j]->data()[l * batchSize + i] = batchVector[i][j][k];
+            subBatches[j]->mask()[l * batchSize + i] = 1.f;
+            words[j]++;
+            ++l;
+          } else {
+            sentenceTags.back().emplace_back(batchVector[i][j][k], l);
+          }
         }
       }
     }
@@ -101,6 +113,7 @@ public:
 
     auto batch = batch_ptr(new batch_type(subBatches));
     batch->setSentenceIds(sentenceIds);
+    batch->setSentenceTags(sentenceTags);
 
     if(options_->has("guided-alignment") && alignFileIdx_)
       addAlignmentsToBatch(batch, batchVector);

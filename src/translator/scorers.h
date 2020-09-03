@@ -40,7 +40,8 @@ public:
                                 const std::vector<IndexType>&,
                                 const Words&,
                                 const std::vector<IndexType>& batchIndices,
-                                int beamSize)
+                                int beamSize,
+                                bool getAlignment)
       = 0;
 
   virtual void init(Ptr<ExpressionGraph>) {}
@@ -119,10 +120,12 @@ public:
                                 const std::vector<IndexType>& hypIndices,
                                 const Words& words,
                                 const std::vector<IndexType>& batchIndices,
-                                int beamSize) override {
+                                int beamSize,
+                                bool getAlignment) override {
     graph->switchParams(getName());
     auto wrapperState = std::dynamic_pointer_cast<ScorerWrapperState>(state);
-    auto newState = encdec_->step(graph, wrapperState->getState(), hypIndices, words, batchIndices, beamSize);
+    auto newState = encdec_->step(
+        graph, wrapperState->getState(), hypIndices, words, batchIndices, beamSize, getAlignment);
     return New<ScorerWrapperState>(newState);
   }
 
