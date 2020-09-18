@@ -35,9 +35,11 @@ public:
       Tensor val = p.second->val();
 
       // save as packed format
-      // @TODO Hardcoded to find packable weights - all the weights used for affine op (fp16), all the weights used for affine op and dot op (int8)
-      if ((gemmElementType == Type::packed8avx2 || gemmElementType == Type::packed8avx512)
-        && (pName.find("_W") == pName.length() - 3 || pName.find("_W") == pName.length() - 2)) {
+      // @TODO Hardcoded to find packable weights - all the weights used for affine op (fp16), all
+      // the weights used for affine op and dot op (int8)
+      if((gemmElementType == Type::packed8avx2 || gemmElementType == Type::packed8avx512)
+         && ((pName.find("_W") == pName.length() - 3 && pName.back() != 't')
+             || pName.find("_W") == pName.length() - 2)) {
   #if USE_FBGEMM
         using namespace marian::cpu::variant;
         // packing information - size
@@ -82,7 +84,8 @@ public:
 #else
         ABORT("Packed type {} only supported when compiled with -DUSE_FBGEMM=on", gemmElementType);
 #endif
-      } else if (gemmElementType == Type::packed16 && pName.find("_W") == pName.length() - 3) {
+      } else if(gemmElementType == Type::packed16 && pName.find("_W") == pName.length() - 3
+                && pName.back() != 't') {
 #if USE_FBGEMM
         using namespace marian::cpu::variant;
 
