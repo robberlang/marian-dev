@@ -47,14 +47,14 @@ Words OutputPrinter::reinsertTags(const Words& words,
 
   Words wordsWithTags;
   if(entitizeTags_) {
-    auto t = lineTags.begin();
-    for(; t != lineTags.end() && t->second == 0; ++t) {
-      wordsWithTags.emplace_back(t->first);
+    auto lineTag = lineTags.begin();
+    for(; lineTag != lineTags.end() && lineTag->second == 0; ++lineTag) {
+      wordsWithTags.emplace_back(lineTag->first);
     }
 
     wordsWithTags.insert(wordsWithTags.end(), words.begin(), words.end());
-    for(; t != lineTags.end(); ++t) {
-      wordsWithTags.emplace_back(t->first);
+    for(; lineTag != lineTags.end(); ++lineTag) {
+      wordsWithTags.emplace_back(lineTag->first);
     }
 
     return wordsWithTags;
@@ -69,13 +69,18 @@ Words OutputPrinter::reinsertTags(const Words& words,
   std::vector<std::pair<size_t, size_t>> trgTagRegions;
   size_t maxOverallTgtPos = 0;
   auto curWordAlign = hardAlignment.begin();
-  for(auto t = lineTags.begin(); t != lineTags.end(); ++t) {
-    const auto& markupTag = t->first.getMarkupTag();
+  auto lineTag = lineTags.begin();
+  for(; lineTag != lineTags.end(); ++lineTag) {
+    const auto& markupTag = lineTag->first.getMarkupTag();
     if(!markupTag) // error
       continue;
 
+    // placeholders at end, not actually tags
+    if(markupTag->getType() == TagType::NONE)
+      break;
+
     for(; curWordAlign != hardAlignment.end(); ++curWordAlign) {
-      if(curWordAlign->srcPos >= t->second) {
+      if(curWordAlign->srcPos >= lineTag->second) {
         break;
       }
 
@@ -84,11 +89,11 @@ Words OutputPrinter::reinsertTags(const Words& words,
     }
 
     if(markupTag->getType() != TagType::CLOSE_TAG) {
-      if(curWordAlign != hardAlignment.end() && curWordAlign->srcPos == t->second) {
-        translationTags.emplace_back(t, curWordAlign->tgtPos);
+      if(curWordAlign != hardAlignment.end() && curWordAlign->srcPos == lineTag->second) {
+        translationTags.emplace_back(lineTag, curWordAlign->tgtPos);
       } else {
         // place at the end
-        translationTags.emplace_back(t, words.size());
+        translationTags.emplace_back(lineTag, words.size());
       }
 
       if(markupTag->getType() == TagType::OPEN_TAG)
@@ -96,11 +101,11 @@ Words OutputPrinter::reinsertTags(const Words& words,
                                         std::distance(hardAlignment.begin(), curWordAlign));
     } else {
       if(!unbalancedOpenTags.empty()) {
-        if(t->second == maxSrcPos && translationTags[unbalancedOpenTags.back().first].first->second == 0) {
+        if(lineTag->second == maxSrcPos && translationTags[unbalancedOpenTags.back().first].first->second == 0) {
           translationTags[unbalancedOpenTags.back().first].second = 0;
-          translationTags.emplace_back(t, words.size());
+          translationTags.emplace_back(lineTag, words.size());
         } else if(translationTags[unbalancedOpenTags.back().first].second == words.size()) {
-          translationTags.emplace_back(t, words.size());
+          translationTags.emplace_back(lineTag, words.size());
         } else {
           auto wordAlign = hardAlignment.begin() + unbalancedOpenTags.back().second;
           // first get the boundaries of unambiguous word alignments
@@ -224,7 +229,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
 
           if(!regionConflict) {
             translationTags[unbalancedOpenTags.back().first].second = minTgtPos;
-            translationTags.emplace_back(t, maxTgtPos + 1);
+            translationTags.emplace_back(lineTag, maxTgtPos + 1);
             trgTagRegions.emplace_back(minTgtPos, maxTgtPos);
           } else {
             // place these open/close tags at the end
@@ -232,12 +237,12 @@ Words OutputPrinter::reinsertTags(const Words& words,
             for(size_t i = unbalancedOpenTags.back().first; i < translationTags.size(); ++i) {
               translationTags[i].second = words.size();
             }
-            translationTags.emplace_back(t, words.size());
+            translationTags.emplace_back(lineTag, words.size());
           }
         }
         unbalancedOpenTags.pop_back();
       } else {
-        translationTags.emplace_back(t, maxOverallTgtPos + 1);
+        translationTags.emplace_back(lineTag, maxOverallTgtPos + 1);
       }
     }
   }
@@ -277,6 +282,9 @@ Words OutputPrinter::reinsertTags(const Words& words,
   }
 
   wordsWithTags.insert(wordsWithTags.end(), w, words.end());
+  for(; lineTag != lineTags.end(); ++lineTag) {
+    wordsWithTags.emplace_back(lineTag->first);
+  }
   return wordsWithTags;
 }
 

@@ -25,6 +25,7 @@ add_library(marian STATIC
   common/filesystem.cpp
   common/file_stream.cpp
   common/types.cpp
+  common/char_entities.cpp
   
   data/alignment.cpp
   data/vocab.cpp

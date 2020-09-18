@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#if (_MSC_VER >= 1800) || (__cplusplus >= 201103L) // C++ 11
+#if(_MSC_VER >= 1800) || (__cplusplus >= 201103L)  // C++ 11
 #include <type_traits>
 #endif
 
@@ -117,5 +117,5 @@ size_t findTagEnd(const std::basic_string<T>& str, size_t posLT) {
 
   return k;
 }
-}
-}
+}  // namespace tagfinder
+}  // namespace marian

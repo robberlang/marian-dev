@@ -1,4 +1,4 @@
 #pragma once
 
-#include <regex>
-namespace regex = std;
+#include <boost/regex.hpp>
+namespace regex = boost;

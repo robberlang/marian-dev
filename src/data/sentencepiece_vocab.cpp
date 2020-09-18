@@ -1,5 +1,4 @@
 #include "data/vocab_base.h"
-#include "data/tag_finder.h"
 
 #ifdef USE_SENTENCEPIECE
 #include "sentencepiece/src/sentencepiece_processor.h"
@@ -11,14 +10,55 @@
 #include "common/logging.h"
 #include "common/filesystem.h"
 #include "common/regex.h"
+#include "common/tag_finder.h"
+#include "common/utils.h"
+#include "common/char_entities.h"
 
 #include <sstream>
 #include <random>
 #include <stack>
+#include <tuple>
+#include <functional>
 
 namespace marian {
 
 #ifdef USE_SENTENCEPIECE
+
+typedef std::tuple<const char*, regex::regex, std::function<bool(const std::string&)>>
+    PlaceHolderProps;
+
+static const PlaceHolderProps placeHolderList[] = {
+    // Credit card (based on https://stackoverflow.com/a/23231321/3832970, test:
+    // https://regex101.com/r/hnvNqh/2
+    {"__ent_ccard_",
+     regex::regex(
+         R"((?<!\d)(?:3[47][0-9]{13}|(6541|6556)[0-9]{12}|389[0-9]{11}|3(?:0[0-5]|[68][0-9])[0-9]{11}|65[4-9][0-9]{13}|64[4-9][0-9]{13}|6011[0-9]{12}|(622(?:12[6-9]|1[3-9][0-9]|[2-8][0-9][0-9]|9[01][0-9]|92[0-5])[0-9]{10})|63[7-9][0-9]{13}|(?:2131|1800|35\d{3})\d{11}|9[0-9]{15}|(6304|6706|6709|6771)[0-9]{12,15}|(5018|5020|5038|6304|6759|6761|6763)[0-9]{8,15}|(5[1-5][0-9]{14}|2(22[1-9][0-9]{12}|2[3-9][0-9]{13}|[3-6][0-9]{14}|7[0-1][0-9]{13}|720[0-9]{12}))|(6334|6767)[0-9]{12}|(6334|6767)[0-9]{14}|(6334|6767)[0-9]{15}|(4903|4905|4911|4936|6333|6759)[0-9]{12}|(4903|4905|4911|4936|6333|6759)[0-9]{14}|(4903|4905|4911|4936|6333|6759)[0-9]{15}|564182[0-9]{10}|564182[0-9]{12}|564182[0-9]{13}|633110[0-9]{10}|633110[0-9]{12}|633110[0-9]{13}|(62[0-9]{14,17})|4[0-9]{12}(?:[0-9]{3})?|(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}))(?!\d))"),
+     [](const std::string& str) { return true; }},
+    // Numeric Date (no leap year checking, https://regex101.com/r/dyzdkT/2)
+    {"__ent_date_",
+     regex::regex(
+         R"((?<!\d)(?<!\d[- /.])(?:(?:19|20)?\d\d([- /.])(?:0[1-9]|1[012])\1(?:0[1-9]|[12][0-9]|3[01])|(?:0[1-9]|1[012])([- /.])(?:0[1-9]|[12][0-9]|3[01])\2(?:19|20)?\d\d|(?:0[1-9]|[12][0-9]|3[01])([- /.])(?:0[1-9]|1[012])\3(?:19|20)?\d\d)(?![- /.]?\d))"),
+     [](const std::string& str) { return true; }},
+    // Phone (Test: https://regex101.com/r/qmMD9w/1)
+    {"__ent_phone_",
+     regex::regex(
+         R"((?<!\d)(?<!\d[\t\p{Zs}-])(?!\s)(?:\+?\d+[\t\p{Zs}-]?)?[\(\[\t\p{Zs}-]{0,2}\d{3,5}[]).\t\p{Zs}-]{0,2}\d{2,3}[.\t\p{Zs}-]?\d{2,4}(?:[.\t\p{Zs}-]?\d{2,4})?(?![.\t\p{Zs}-]?\d))"),
+     [](const std::string& str) { return true; }},
+    // Email (from https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address,
+    // final character '+' changed from '*')
+    {"__ent_email_",
+     regex::regex(
+         R"([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)"),
+     [](const std::string& str) { return str.find('@') != std::string::npos; }},
+    // URLs (from https://gist.github.com/dperini/729294
+    // see also https://mathiasbynens.be/demo/url-regex)
+    {"__ent_url_",
+     regex::regex(
+         R"((?:(?:(?:https?|ftp):)?\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z0-9\u00a1-\uffff][a-z0-9\u00a1-\uffff_-]{0,62})?[a-z0-9\u00a1-\uffff]\.)+(?:[a-z\u00a1-\uffff]{2,}\.?))(?::\d{2,5})?(?:[/?#]\S*)?)"),
+     [](const std::string& str) { return str.find("//") != std::string::npos; }},
+};
+
+static const size_t placeHolderListLength = sizeof(placeHolderList) / sizeof(PlaceHolderProps);
 
 // Wrapper around https://github.com/google/sentencepiece
 class SentencePieceVocab : public IVocab {
@@ -226,17 +266,126 @@ public:
     return false;
   }
 
-  static std::string htmlEncode(const std::string& text) {
-    std::string encoded = regex::regex_replace(text, regex::regex("&"), "&amp;");
-    encoded = regex::regex_replace(encoded, regex::regex("<"), "&lt;");
-    encoded = regex::regex_replace(encoded, regex::regex(">"), "&gt;");
+  static std::string encodeSpecialChars(const std::string& text) {
+    std::string encoded;
+    size_t p = 0, q = 0;
+    for(; (p = text.find_first_of("&<>", q)) != std::string::npos; q = p + 1) {
+      encoded.append(text, q, p - q);
+      encoded += '&';
+      if(text[p] == '&') {
+        encoded.append("amp");
+      } else if(text[p] == '<') {
+        encoded.append("lt");
+      } else {
+        encoded.append("gt");
+      }
+      encoded += ';';
+    }
+
+    encoded.append(text, q, p - q);
     return encoded;
   }
 
-  static std::string htmlDecode(const std::string& text) {
-    std::string decoded = regex::regex_replace(text, regex::regex("&lt;"), "<");
-    decoded = regex::regex_replace(decoded, regex::regex("&gt;"), ">");
-    decoded = regex::regex_replace(decoded, regex::regex("&amp;"), "&");
+  static std::string maskURLsEmailAddysEtc(
+      const std::string& text,
+      std::vector<std::pair<std::size_t, std::string>>& replacedStrings) {
+    std::string masked = text;
+
+    for(size_t i = 0; i < placeHolderListLength; ++i) {
+      const auto& phItem = placeHolderList[i];
+      if(std::get<2>(phItem)(masked)) {
+        masked = regex::regex_replace(
+            masked, std::get<1>(phItem), [&replacedStrings, i](const regex::smatch& m) {
+              std::string str = m.str(0);
+              if(str.find("__ent_") == std::string::npos) {
+                replacedStrings.emplace_back(i, str);
+                return std::string(std::get<0>(placeHolderList[i]));
+              }
+              return str;
+            });
+      }
+    }
+    return masked;
+  }
+
+  static std::string decodeEntities(const std::string& text, InputFormat inputFormat) {
+    std::string decoded;
+    size_t p = 0, q = 0;
+    while((p = text.find('&', q)) != std::string::npos) {
+      decoded.append(text, q, p - q);
+      bool validEntity = false;
+      if((q = text.find(';', p + 1)) != std::string::npos) {
+        if(text[p + 1] == '#') {
+          if(text[p + 2] == 'x' || (text[p + 2] == 'X' && inputFormat == InputFormat::HTML)) {
+            std::string entity(text, p + 3, q - p - 3);
+            validEntity = !entity.empty();
+            for(auto c : entity) {
+              if(!((c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || (c >= '0' && c <= '9'))) {
+                validEntity = false;
+                break;
+              }
+            }
+            if(validEntity) {
+              int numeric = std::stoi(entity, nullptr, 16);
+              validEntity = (numeric < 0x110000);
+              if(validEntity) {
+                charentities::EntityRep ent_rep(numeric);
+                decoded.append(ent_rep.str());
+              }
+            }
+          } else {
+            std::string entity(text, p + 2, q - p - 2);
+            validEntity = !entity.empty();
+            for(auto c : entity) {
+              if(!(c >= '0' && c <= '9')) {
+                validEntity = false;
+                break;
+              }
+            }
+            if(validEntity) {
+              int numeric = std::stoi(entity);
+              validEntity = (numeric < 0x110000);
+              if(validEntity) {
+                charentities::EntityRep ent_rep(numeric);
+                decoded.append(ent_rep.str());
+              }
+            }
+          }
+        } else {
+          std::string entity(text, p + 1, q - p - 1);
+          std::string rep_char;
+          if(inputFormat == InputFormat::HTML) {
+            rep_char = charentities::getCharRepOfEntity(entity.c_str()).str();
+          } else {
+            if(entity == "amp") {
+              rep_char = '&';
+            } else if(entity == "lt") {
+              rep_char = '<';
+            } else if(entity == "gt") {
+              rep_char = '>';
+            } else if(entity == "quot") {
+              rep_char = '"';
+            } else if(entity == "apos") {
+              rep_char = '\'';
+            }
+          }
+
+          validEntity = !rep_char.empty();
+          if(validEntity) {
+            decoded.append(rep_char);
+          }
+        }
+      }
+
+      if(validEntity) {
+        ++q;
+      } else {
+        decoded += '&';
+        q = p + 1;
+      }
+    }
+
+    decoded.append(text, q, p - q);
     return decoded;
   }
 
@@ -251,6 +400,7 @@ public:
         bool entitizeTags = options_->get<bool>("entitize-tags", false);
         sentencepiece::normalizer::AddDummyPrefix addDummyPrefix
             = sentencepiece::normalizer::AddDummyPrefix::DEFAULT;
+        std::vector<std::pair<std::size_t, std::string>> replacedStrings;
         for(size_t q = (size_t)-1, p = 0;;) {
           p = tagfinder::findNextTagStart(line, ++q);
           TagType tagType = TagType::NONE;
@@ -308,7 +458,8 @@ public:
                                      : sentencepiece::normalizer::AddDummyPrefix::ON;
               }
             }
-            prefix = htmlDecode(prefix);
+            prefix = decodeEntities(prefix, inputFormat);
+            prefix = maskURLsEmailAddysEtc(prefix, replacedStrings);
             spm_->Encode(prefix, &spmIds, addDummyPrefix);
             for(auto&& spmId : spmIds)
               words.emplace_back(Word::fromWordIndex(spmId));
@@ -326,21 +477,23 @@ public:
 
           if(!entitizeTags) {
             words.emplace_back(
-                Word::fromWordIndexAndTag((WordIndex)-1, line.substr(p, q - p + 1), tagType));
+                Word::fromWordIndexAndTag((std::size_t)-1, line.substr(p, q - p + 1), tagType));
           } else {
-            words.emplace_back(
-                Word::fromWordIndexAndTag(addDummyPrefix, line.substr(p, q - p + 1), tagType));
+            words.emplace_back(Word::fromWordIndexAndTag(
+                (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType));
           }
         }
 
         if(entitizeTags && !words.empty()) {
           size_t startWordInd = 0;
-          for(; startWordInd < words.size() && words[startWordInd].getMarkupTag(); ++startWordInd)
+          for(; startWordInd < words.size() && words[startWordInd].getMarkupTag();
+              ++startWordInd)
             ;
 
           size_t lastWordInd = words.size() - 1;
           if(startWordInd > 0) {
-            for(; lastWordInd > startWordInd && words[lastWordInd].getMarkupTag(); --lastWordInd)
+            for(; lastWordInd > startWordInd && words[lastWordInd].getMarkupTag();
+                --lastWordInd)
               ;
 
             if(lastWordInd == words.size() - 1) {
@@ -377,7 +530,7 @@ public:
               words[k].setWordIndex((WordIndex)-1);
           }
 
-          for(size_t k = startWordInd, entitizedTagId = 0; k <= lastWordInd; ++k) {
+          for(size_t k = startWordInd, entitizedTagId = 1; k <= lastWordInd; ++k) {
             const auto& markupTag = words[k].getMarkupTag();
             if(markupTag) {
               Word newWordTag = Word::fromWordIndexAndTag(
@@ -401,6 +554,9 @@ public:
               words.emplace_back(std::move(newWordTag));
             }
           }
+        }
+        for(const auto& r : replacedStrings) {
+          words.push_back(Word::fromWordIndexAndTag(r.first, r.second, TagType::NONE));
         }
       }
     } else {
@@ -436,6 +592,7 @@ public:
       } else {
         bool entitizeTags = options_->get<bool>("entitize-tags", false);
         std::vector<size_t> entitizedTagIndexes;
+        std::vector<size_t> placeHolderIndexes;
         for(size_t i = 0; i < sentence.size();) {
           const auto& word = sentence[i];
           WordIndex wordIndex = word.toWordIndex();
@@ -447,35 +604,50 @@ public:
               std::string detokenized;
               spm_->Decode(spmSentence, &detokenized);
               spmSentence.clear();
-              line += htmlEncode(detokenized);
+              line += encodeSpecialChars(detokenized);
             }
 
-            const auto& markupTag = word.getMarkupTag();
-            std::string tag = markupTag->getTag();
-            bool needSpace = false;
+            bool spaceRequiredBeforeNextWord = false;
             size_t j = i + 1;
             for(; j < sentence.size() && sentence[j].getMarkupTag()
                   && sentence[j].toWordIndex() == (WordIndex)-1;
                 ++j) {
-              tag += sentence[j].getMarkupTag()->getTag();
             }
 
             if(i > 0 && j < sentence.size() && !sentence[j].getMarkupTag()) {
               const auto& nextWord = (*this)[sentence[j]];
+              // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
               if(nextWord.size() >= 3 && nextWord[0] == (char)0xe2 && nextWord[1] == (char)0x96
                  && nextWord[2] == (char)0x81) {
-                needSpace = true;
+                spaceRequiredBeforeNextWord = true;
               }
             }
 
-            if(needSpace && markupTag->getType() != TagType::CLOSE_TAG)
+            if(spaceRequiredBeforeNextWord
+               && word.getMarkupTag()->getType() != TagType::CLOSE_TAG) {
               line += ' ';
+            }
 
-            line += tag;
-            if(needSpace && markupTag->getType() == TagType::CLOSE_TAG)
+            line += word.getMarkupTag()->getTag();
+            for(size_t k = i + 1; k < j; ++k) {
+              const auto& markupTag = sentence[k].getMarkupTag();
+              if(spaceRequiredBeforeNextWord && markupTag->getType() != TagType::CLOSE_TAG
+                 && sentence[k - 1].getMarkupTag()->getType() != TagType::OPEN_TAG) {
+                line += ' ';
+              }
+
+              line += markupTag->getTag();
+            }
+
+            if(spaceRequiredBeforeNextWord
+               && sentence[j - 1].getMarkupTag()->getType() != TagType::OPEN_TAG) {
               line += ' ';
+            }
 
             i = j;
+          } else if(word.getMarkupTag()->getType() == TagType::NONE) {
+            placeHolderIndexes.push_back(i);
+            ++i;
           } else {
             entitizedTagIndexes.push_back(i);
             ++i;
@@ -485,27 +657,47 @@ public:
         if(!spmSentence.empty()) {
           std::string detokenized;
           spm_->Decode(spmSentence, &detokenized);
-          line += htmlEncode(detokenized);
+          line += encodeSpecialChars(detokenized);
         }
 
         if(entitizeTags && !entitizedTagIndexes.empty()) {
-          for(auto entitizedTagIndex : entitizedTagIndexes) {
-            WordIndex entitizedTagId = sentence[entitizedTagIndex].toWordIndex();
+          for(auto i : entitizedTagIndexes) {
+            WordIndex entitizedTagId = sentence[i].toWordIndex();
             std::ostringstream oss;
             oss << "__ent_" << std::setfill('0') << std::setw(5) << entitizedTagId << "_";
             std::string entity = oss.str();
             size_t p = line.find(entity);
             if(p != std::string::npos) {
               line.replace(
-                  p, entity.length(), sentence[entitizedTagIndex].getMarkupTag()->getTag());
+                  p, entity.length(), sentence[i].getMarkupTag()->getTag());
             } else {
-              line += sentence[entitizedTagIndex].getMarkupTag()->getTag();
+              line += sentence[i].getMarkupTag()->getTag();
             }
           }
 
           // remove any stray tag entities
           line = regex::regex_replace(line, regex::regex("__ent_[0-9]+_"), "");
         }
+
+        line = regex::regex_replace(
+            line,
+            regex::regex("__ent_[^_]+_"),
+            [&placeHolderIndexes, &sentence](const regex::smatch& m) {
+              std::string str(m.str(0));
+              for(size_t i = 0; i < placeHolderListLength; ++i) {
+                if(str == std::get<0>(placeHolderList[i])) {
+                  for(auto it = placeHolderIndexes.begin(); it != placeHolderIndexes.end(); ++it) {
+                    if(sentence[*it].toWordIndex() == i) {
+                      size_t j = *it;
+                      placeHolderIndexes.erase(it);
+                      return sentence[j].getMarkupTag()->getTag();
+                    }
+                  }
+                  return std::string();
+                }
+              }
+              return std::string();
+            });
       }
     }
     return line;
