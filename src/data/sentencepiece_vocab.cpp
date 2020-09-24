@@ -393,14 +393,15 @@ public:
     InputFormat inputFormat = ConvertInputFormat(options_->get<std::string>("input-format", ""));
     Words words;
     std::vector<int> spmIds;
+    std::vector<std::pair<std::size_t, std::string>> replacedStrings;
     if(inference || alpha_ == 0) {
       if(!inference || inputFormat == InputFormat::PLAINTEXT) {
-        spm_->Encode(line, &spmIds);
+        std::string masked = maskURLsEmailAddysEtc(line, replacedStrings);
+        spm_->Encode(masked, &spmIds);
       } else {
         bool entitizeTags = options_->get<bool>("entitize-tags", false);
         sentencepiece::normalizer::AddDummyPrefix addDummyPrefix
             = sentencepiece::normalizer::AddDummyPrefix::DEFAULT;
-        std::vector<std::pair<std::size_t, std::string>> replacedStrings;
         for(size_t q = (size_t)-1, p = 0;;) {
           p = tagfinder::findNextTagStart(line, ++q);
           TagType tagType = TagType::NONE;
@@ -555,9 +556,6 @@ public:
             }
           }
         }
-        for(const auto& r : replacedStrings) {
-          words.push_back(Word::fromWordIndexAndTag(r.first, r.second, TagType::NONE));
-        }
       }
     } else {
       spm_->SampleEncode(line, -1, alpha_, &spmIds);
@@ -571,6 +569,9 @@ public:
 
     if(addEOS)
       words.emplace_back(getEosId());
+    for(const auto& r : replacedStrings) {
+      words.push_back(Word::fromWordIndexAndTag(r.first, r.second, TagType::NONE));
+    }
     return words;
   }
 
@@ -585,14 +586,21 @@ public:
       // convert vector of Word to vector of int
       std::vector<int> spmSentence;
       spmSentence.reserve(sentence.size());
+      std::vector<size_t> placeHolderIndexes;
       if(inputFormat == InputFormat::PLAINTEXT) {
-        for(const Word& word : sentence)
-          spmSentence.push_back(word.toWordIndex());
+        for(size_t i = 0; i < sentence.size(); ++i) {
+          const auto& word = sentence[i];
+          WordIndex wordIndex = word.toWordIndex();
+          if(!word.getMarkupTag()) {
+            spmSentence.push_back(wordIndex);
+          } else if(word.getMarkupTag()->getType() == TagType::NONE) {
+            placeHolderIndexes.push_back(i);
+          }
+        }
         spm_->Decode(spmSentence, &line);
       } else {
         bool entitizeTags = options_->get<bool>("entitize-tags", false);
         std::vector<size_t> entitizedTagIndexes;
-        std::vector<size_t> placeHolderIndexes;
         for(size_t i = 0; i < sentence.size();) {
           const auto& word = sentence[i];
           WordIndex wordIndex = word.toWordIndex();
@@ -678,27 +686,27 @@ public:
           // remove any stray tag entities
           line = regex::regex_replace(line, regex::regex("__ent_[0-9]+_"), "");
         }
-
-        line = regex::regex_replace(
-            line,
-            regex::regex("__ent_[^_]+_"),
-            [&placeHolderIndexes, &sentence](const regex::smatch& m) {
-              std::string str(m.str(0));
-              for(size_t i = 0; i < placeHolderListLength; ++i) {
-                if(str == std::get<0>(placeHolderList[i])) {
-                  for(auto it = placeHolderIndexes.begin(); it != placeHolderIndexes.end(); ++it) {
-                    if(sentence[*it].toWordIndex() == i) {
-                      size_t j = *it;
-                      placeHolderIndexes.erase(it);
-                      return sentence[j].getMarkupTag()->getTag();
-                    }
-                  }
-                  return std::string();
-                }
-              }
-              return std::string();
-            });
       }
+
+      line = regex::regex_replace(
+          line,
+          regex::regex("__ent_[^_]+_"),
+          [&placeHolderIndexes, &sentence](const regex::smatch& m) {
+            std::string str(m.str(0));
+            for(size_t i = 0; i < placeHolderListLength; ++i) {
+              if(str == std::get<0>(placeHolderList[i])) {
+                for(auto it = placeHolderIndexes.begin(); it != placeHolderIndexes.end(); ++it) {
+                  if(sentence[*it].toWordIndex() == i) {
+                    size_t j = *it;
+                    placeHolderIndexes.erase(it);
+                    return sentence[j].getMarkupTag()->getTag();
+                  }
+                }
+                return std::string();
+              }
+            }
+            return std::string();
+          });
     }
     return line;
   }
