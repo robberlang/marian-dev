@@ -32,14 +32,21 @@ enum class TagType : char {
   EMPTY_TAG = 3,
 };
 
+const char TAGSPACING_NONE = 0x0;
+const char TAGSPACING_BEFORE = 0x1;
+const char TAGSPACING_AFTER = 0x2;
+
 class MarkupTag {
   std::string tag_;
   TagType type_;
+  char spacing_;
 
 public:
-  MarkupTag(std::string tag, TagType type) : tag_(std::move(tag)), type_(type) {}
+  MarkupTag(std::string tag, TagType type, char spacing)
+      : tag_(std::move(tag)), type_(type), spacing_(spacing) {}
   const std::string& getTag() const { return tag_; }
   const TagType& getType() const { return type_; }
+  char getSpacing() const { return spacing_; }
 };
 
 // Type for all vocabulary items, based on IndexType
@@ -48,13 +55,16 @@ class Word {                    // Word is an abstraction of a unique id, not ne
   WordIndex wordId_;
   Ptr<MarkupTag> markupTag_;
   explicit Word(std::size_t wordId) : wordId_((WordIndex)wordId) {}
-  explicit Word(std::size_t wordId, const std::string& tag, TagType tagType)
-      : wordId_((WordIndex)wordId), markupTag_(New<MarkupTag>(tag, tagType)) {}
+  explicit Word(std::size_t wordId, const std::string& tag, TagType tagType, char tagSpacing)
+      : wordId_((WordIndex)wordId), markupTag_(New<MarkupTag>(tag, tagType, tagSpacing)) {}
 
 public:
   static Word fromWordIndex(std::size_t wordId) { return Word(wordId); }
-  static Word fromWordIndexAndTag(std::size_t wordId, const std::string& tag, TagType tagType) {
-    return Word(wordId, tag, tagType);
+  static Word fromWordIndexAndTag(std::size_t wordId,
+                                  const std::string& tag,
+                                  TagType tagType,
+                                  char tagSpacing) {
+    return Word(wordId, tag, tagType, tagSpacing);
   }
   const WordIndex& toWordIndex() const { return wordId_; }
   void setWordIndex(WordIndex wordId) { wordId_ = wordId; }

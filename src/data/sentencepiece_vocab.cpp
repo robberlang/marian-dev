@@ -19,6 +19,7 @@
 #include <stack>
 #include <tuple>
 #include <functional>
+#include <cctype>
 
 namespace marian {
 
@@ -476,12 +477,21 @@ public:
           if(p == std::string::npos)
             break;
 
+          char tagSpacing = TAGSPACING_NONE;
+          if(p > 0 && std::isspace(static_cast<unsigned char>(line[p - 1]))) {
+            tagSpacing |= TAGSPACING_BEFORE;
+          }
+
+          if(q + 1 < line.length() && std::isspace(static_cast<unsigned char>(line[q + 1]))) {
+            tagSpacing |= TAGSPACING_AFTER;
+          }
+
           if(!entitizeTags) {
-            words.emplace_back(
-                Word::fromWordIndexAndTag((std::size_t)-1, line.substr(p, q - p + 1), tagType));
+            words.emplace_back(Word::fromWordIndexAndTag(
+                (std::size_t)-1, line.substr(p, q - p + 1), tagType, tagSpacing));
           } else {
             words.emplace_back(Word::fromWordIndexAndTag(
-                (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType));
+                (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType, tagSpacing));
           }
         }
 
@@ -534,8 +544,10 @@ public:
           for(size_t k = startWordInd, entitizedTagId = 1; k <= lastWordInd; ++k) {
             const auto& markupTag = words[k].getMarkupTag();
             if(markupTag) {
-              Word newWordTag = Word::fromWordIndexAndTag(
-                  entitizedTagId, markupTag->getTag(), markupTag->getType());
+              Word newWordTag = Word::fromWordIndexAndTag(entitizedTagId,
+                                                          markupTag->getTag(),
+                                                          markupTag->getType(),
+                                                          markupTag->getSpacing());
               std::ostringstream oss;
               oss << "__ent_" << std::setfill('0') << std::setw(5) << entitizedTagId++ << "_";
               sentencepiece::normalizer::AddDummyPrefix adp
@@ -570,7 +582,8 @@ public:
     if(addEOS)
       words.emplace_back(getEosId());
     for(const auto& r : replacedStrings) {
-      words.push_back(Word::fromWordIndexAndTag(r.first, r.second, TagType::NONE));
+      words.push_back(
+          Word::fromWordIndexAndTag(r.first, r.second, TagType::NONE, TAGSPACING_NONE));
     }
     return words;
   }
@@ -601,6 +614,26 @@ public:
       } else {
         bool entitizeTags = options_->get<bool>("entitize-tags", false);
         std::vector<size_t> entitizedTagIndexes;
+        std::vector<bool> spacePrefix;
+        spacePrefix.reserve(sentence.size());
+        for(size_t i = 0; i < sentence.size(); ++i) {
+          const auto& word = sentence[i];
+          if(!word.getMarkupTag()) {
+            const auto& curWord = (*this)[word];
+            bool spaceRequiredBeforeWord = false;
+            // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
+            if(curWord.size() >= 3 && curWord[0] == (char)0xe2 && curWord[1] == (char)0x96
+               && curWord[2] == (char)0x81) {
+              spaceRequiredBeforeWord = true;
+            }
+            spacePrefix.push_back(spaceRequiredBeforeWord);
+          } else {
+            spacePrefix.push_back(false);
+          }
+        }
+
+        bool sentenceHasSpaces
+            = (std::find(spacePrefix.begin(), spacePrefix.end(), true) != spacePrefix.end());
         for(size_t i = 0; i < sentence.size();) {
           const auto& word = sentence[i];
           WordIndex wordIndex = word.toWordIndex();
@@ -608,50 +641,174 @@ public:
             spmSentence.push_back(wordIndex);
             ++i;
           } else if(wordIndex == (WordIndex)-1) {
-            if(!spmSentence.empty()) {
-              std::string detokenized;
-              spm_->Decode(spmSentence, &detokenized);
-              spmSentence.clear();
-              line += encodeSpecialChars(detokenized);
-            }
-
-            bool spaceRequiredBeforeNextWord = false;
+            // collect all adjacent tags; find next real word
+            TagType tt = word.getMarkupTag()->getType();
             size_t j = i + 1;
             for(; j < sentence.size() && sentence[j].getMarkupTag()
                   && sentence[j].toWordIndex() == (WordIndex)-1;
                 ++j) {
-            }
-
-            if(i > 0 && j < sentence.size() && !sentence[j].getMarkupTag()) {
-              const auto& nextWord = (*this)[sentence[j]];
-              // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
-              if(nextWord.size() >= 3 && nextWord[0] == (char)0xe2 && nextWord[1] == (char)0x96
-                 && nextWord[2] == (char)0x81) {
-                spaceRequiredBeforeNextWord = true;
+              // need to track whether the tags are all of the same type: open or close, empty tags
+              // being neutral
+              if(sentence[j].getMarkupTag()->getType() != TagType::EMPTY_TAG) {
+                if(tt == TagType::EMPTY_TAG) {
+                  tt = sentence[j].getMarkupTag()->getType();
+                } else if(sentence[j].getMarkupTag()->getType() != tt) {
+                  tt = TagType::NONE;
+                }
               }
             }
 
-            if(spaceRequiredBeforeNextWord
-               && word.getMarkupTag()->getType() != TagType::CLOSE_TAG) {
-              line += ' ';
+            bool done = false;
+            bool spaceRequiredBeforeNextWord = false;
+            if(i > 0 && j < sentence.size() && !sentence[j].getMarkupTag()) {
+              if(spacePrefix[j]) {
+                spaceRequiredBeforeNextWord = true;
+              } else if(sentenceHasSpaces && tt != TagType::NONE) {
+                // prevent the tags from appearing in the middle of the word
+                // sentence has spaces, and the adjacent tags are all open or close (possibly with
+                // self-closing mixed in)
+                // if open, move left, if close, move right to where there is a space
+                // deal with everything here:
+                done = true;
+                if(tt != TagType::CLOSE_TAG) {
+                  size_t previousWordsEndIdx = spmSentence.size();
+                  for(size_t k = 0; k < spmSentence.size(); ++k) {
+                    if(spacePrefix[i - k - 1]) {
+                      previousWordsEndIdx = spmSentence.size() - k - 1;
+                      break;
+                    }
+                  }
+
+                  std::vector<int> spmTwo;
+                  if(!spmSentence.empty()) {
+                    if(previousWordsEndIdx < spmSentence.size()) {
+                      auto it = std::next(spmSentence.begin(), previousWordsEndIdx);
+                      std::move(it, spmSentence.end(), std::back_inserter(spmTwo));
+                      spmSentence.erase(it, spmSentence.end());
+                    }
+                    std::string detokenized;
+                    spm_->Decode(spmSentence, &detokenized);
+                    spmSentence.clear();
+                    line += encodeSpecialChars(detokenized);
+                  }
+
+                  bool spaceRequired = !spmTwo.empty();
+                  if(spaceRequired) {
+                    line += ' ';
+                  }
+
+                  bool emptyLine = line.empty();
+                  for(size_t m = i; m < j; ++m) {
+                    const auto& markupTag = sentence[m].getMarkupTag();
+                    if(spaceRequired && !line.empty() && line.back() != ' '
+                       && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
+                      line += ' ';
+                    }
+
+                    line += markupTag->getTag();
+                    if((spaceRequired || emptyLine)
+                       && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                      line += ' ';
+                    }
+                  }
+
+                  if(!spmTwo.empty()) {
+                    std::string detokenized;
+                    spm_->Decode(spmTwo, &detokenized);
+                    line += encodeSpecialChars(detokenized);
+                  }
+                } else {
+                  // closing tag(s), move right
+                  size_t k = j + 1;
+                  for(; k < spacePrefix.size() && !spacePrefix[k]; ++k) {
+                    if(sentence[k].getMarkupTag() && sentence[k].toWordIndex() == (WordIndex)-1
+                       && sentence[k].getMarkupTag()->getType() != TagType::CLOSE_TAG) {
+                      // the next real word must require a leading space
+                      size_t l = k + 1;
+                      for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
+                      }
+
+                      // no change to the position of the tag to place
+                      if(l < spacePrefix.size() && !spacePrefix[l]) {
+                        k = j;
+                      }
+                      break;
+                    }
+                  }
+
+                  for(size_t l = j; l < k; ++l) {
+                    if(!sentence[l].getMarkupTag()) {
+                      spmSentence.push_back(sentence[l].toWordIndex());
+                    }
+                  }
+
+                 if(!spmSentence.empty()) {
+                    std::string detokenized;
+                    spm_->Decode(spmSentence, &detokenized);
+                    spmSentence.clear();
+                    line += encodeSpecialChars(detokenized);
+                  }
+
+                  j = k;
+                  bool spaceRequired = (j < spacePrefix.size() && spacePrefix[j]);
+                  for(size_t m = i; m < j; ++m) {
+                    const auto& markupTag = sentence[m].getMarkupTag();
+                    if(markupTag && sentence[m].toWordIndex() == (WordIndex)-1) {
+                      if(spaceRequired && !line.empty() && line.back() != ' '
+                         && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
+                        line += ' ';
+                      }
+
+                      line += markupTag->getTag();
+                      if(spaceRequired && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                        line += ' ';
+                      }
+                    }
+                  }
+
+                  if(spaceRequired && !line.empty() && line.back() != ' ') {
+                    line += ' ';
+                  }
+                }
+              }
             }
 
-            line += word.getMarkupTag()->getTag();
-            for(size_t k = i + 1; k < j; ++k) {
-              const auto& markupTag = sentence[k].getMarkupTag();
-              if(spaceRequiredBeforeNextWord && markupTag->getType() != TagType::CLOSE_TAG
-                 && sentence[k - 1].getMarkupTag()->getType() != TagType::OPEN_TAG) {
+            if(!done) {
+              if(!spmSentence.empty()) {
+                std::string detokenized;
+                spm_->Decode(spmSentence, &detokenized);
+                spmSentence.clear();
+                line += encodeSpecialChars(detokenized);
+              }
+
+              bool emptyLine = line.empty();
+              bool spaceNeededBeforeOpenTag
+                  = spaceRequiredBeforeNextWord && tt != TagType::CLOSE_TAG;
+              for(size_t k = i; k < j; ++k) {
+                const auto& markupTag = sentence[k].getMarkupTag();
+                if(!line.empty() && line.back() != ' ') {
+                  if(spaceNeededBeforeOpenTag
+                     && markupTag->getType() != TagType::CLOSE_TAG) {
+                    line += ' ';
+                    spaceNeededBeforeOpenTag = false;
+                  } else if(spaceRequiredBeforeNextWord
+                            && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
+                    line += ' ';
+                  }
+                }
+
+                line += markupTag->getTag();
+                if((spaceRequiredBeforeNextWord || emptyLine)
+                   && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                  line += ' ';
+                }
+              }
+
+              if(spaceRequiredBeforeNextWord && !line.empty() && line.back() != ' '
+                 && tt == TagType::CLOSE_TAG) {
                 line += ' ';
               }
-
-              line += markupTag->getTag();
             }
-
-            if(spaceRequiredBeforeNextWord
-               && sentence[j - 1].getMarkupTag()->getType() != TagType::OPEN_TAG) {
-              line += ' ';
-            }
-
             i = j;
           } else if(word.getMarkupTag()->getType() == TagType::NONE) {
             placeHolderIndexes.push_back(i);
