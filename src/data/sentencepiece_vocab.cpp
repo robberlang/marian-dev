@@ -663,7 +663,7 @@ public:
             if(i > 0 && j < sentence.size() && !sentence[j].getMarkupTag()) {
               if(spacePrefix[j]) {
                 spaceRequiredBeforeNextWord = true;
-              } else if(sentenceHasSpaces && tt != TagType::NONE) {
+              } else if(sentenceHasSpaces && tt != TagType::NONE && j + 1 < sentence.size()) {
                 // prevent the tags from appearing in the middle of the word
                 // sentence has spaces, and the adjacent tags are all open or close (possibly with
                 // self-closing mixed in)
@@ -791,14 +791,14 @@ public:
                      && markupTag->getType() != TagType::CLOSE_TAG) {
                     line += ' ';
                     spaceNeededBeforeOpenTag = false;
-                  } else if(spaceRequiredBeforeNextWord
+                  } else if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size())
                             && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
                     line += ' ';
                   }
                 }
 
                 line += markupTag->getTag();
-                if((spaceRequiredBeforeNextWord || emptyLine)
+                if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size() || emptyLine)
                    && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
                   line += ' ';
                 }
