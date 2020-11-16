@@ -29,6 +29,18 @@ typedef std::tuple<const char*, regex::regex, std::function<bool(const std::stri
     PlaceHolderProps;
 
 static const PlaceHolderProps placeHolderList[] = {
+    // URLs (from https://gist.github.com/dperini/729294
+    // see also https://mathiasbynens.be/demo/url-regex)
+    {"__ent_url_",
+     regex::regex(
+         R"((?:(?:(?:https?|ftp):)?\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z0-9\u00a1-\uffff][a-z0-9\u00a1-\uffff_-]{0,62})?[a-z0-9\u00a1-\uffff]\.)+(?:[a-z\u00a1-\uffff]{2,}\.?))(?::\d{2,5})?(?:[/?#]\S*)?)"),
+     [](const std::string& str) { return str.find("//") != std::string::npos; }},
+    // Email (from https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address,
+    // final character '+' changed from '*')
+    {"__ent_email_",
+     regex::regex(
+         R"([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)"),
+     [](const std::string& str) { return str.find('@') != std::string::npos; }},
     // Credit card (based on https://stackoverflow.com/a/23231321/3832970, test:
     // https://regex101.com/r/hnvNqh/2
     {"__ent_ccard_",
@@ -45,18 +57,6 @@ static const PlaceHolderProps placeHolderList[] = {
      regex::regex(
          R"((?<!\d)(?<!\d[\t\p{Zs}-])(?!\s)(?:\+?\d+[\t\p{Zs}-]?)?[\(\[\t\p{Zs}-]{0,2}\d{3,5}[]).\t\p{Zs}-]{0,2}\d{2,3}[.\t\p{Zs}-]?\d{2,4}(?:[.\t\p{Zs}-]?\d{2,4})?(?![.\t\p{Zs}-]?\d))"),
      [](const std::string& str) { return true; }},
-    // Email (from https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address,
-    // final character '+' changed from '*')
-    {"__ent_email_",
-     regex::regex(
-         R"([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)"),
-     [](const std::string& str) { return str.find('@') != std::string::npos; }},
-    // URLs (from https://gist.github.com/dperini/729294
-    // see also https://mathiasbynens.be/demo/url-regex)
-    {"__ent_url_",
-     regex::regex(
-         R"((?:(?:(?:https?|ftp):)?\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z0-9\u00a1-\uffff][a-z0-9\u00a1-\uffff_-]{0,62})?[a-z0-9\u00a1-\uffff]\.)+(?:[a-z\u00a1-\uffff]{2,}\.?))(?::\d{2,5})?(?:[/?#]\S*)?)"),
-     [](const std::string& str) { return str.find("//") != std::string::npos; }},
 };
 
 static const size_t placeHolderListLength = sizeof(placeHolderList) / sizeof(PlaceHolderProps);
@@ -628,6 +628,9 @@ public:
             }
             spacePrefix.push_back(spaceRequiredBeforeWord);
           } else {
+            if(word.toWordIndex() != (WordIndex)-1) {
+              break;
+            }
             spacePrefix.push_back(false);
           }
         }
@@ -660,7 +663,8 @@ public:
 
             bool done = false;
             bool spaceRequiredBeforeNextWord = false;
-            if(i > 0 && j < sentence.size() && !sentence[j].getMarkupTag()) {
+            if(i > 0 && j < spacePrefix.size() && !sentence[j].getMarkupTag()
+               && sentence[j] != getEosId()) {
               if(spacePrefix[j]) {
                 spaceRequiredBeforeNextWord = true;
               } else if(sentenceHasSpaces && tt != TagType::NONE && j + 1 < sentence.size()) {
