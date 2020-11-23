@@ -34,8 +34,9 @@ std::string WordAlignment::toString() const {
 }
 
 WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
-                                          float threshold /*= 1.f*/,
-                                          bool matchLastWithLast /*= false*/) {
+                                          float threshold /*= 0.1f*/,
+                                          bool useStrategy /*=true*/,
+                                          bool matchLastWithLast /*= true*/) {
   WordAlignment align;
   if(alignSoft.empty()) {
     return align;
@@ -47,12 +48,14 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
     --endTrg;
   }
   // Alignments by maximum value
-  if(threshold == 1.f) {
+  if(useStrategy) {
     std::vector<std::tuple<size_t, size_t, float>> alignProbs;
     for(size_t t = 0; t < endTrg; ++t) {
       // Retrieved alignments are in reversed order
       for(size_t s = 0; s < endSrc; ++s) {
-        alignProbs.emplace_back(s, t, alignSoft[t][s]);
+        if(alignSoft[t][s] > threshold) {
+          alignProbs.emplace_back(s, t, alignSoft[t][s]);
+        }
       }
     }
     std::sort(alignProbs.begin(),
@@ -179,7 +182,7 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
       align.push_back(a.first, a.second, alignSoft[a.second][a.first]);
     }
   } else {
-    // Alignments by greather-than-threshold
+    // All alignments by greather-than-threshold
     for(size_t t = 0; t < endTrg; ++t) {
       // Retrieved alignments are in reversed order
       for(size_t s = 0; s < endSrc; ++s) {

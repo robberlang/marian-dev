@@ -620,7 +620,7 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
       "Entitize tags. Assumes that training was done on entitized tags");
   cli.add<std::string>("--alignment",
      "Return word alignment. Possible values: 0.0-1.0, hard, soft")
-    ->implicit_val("1");
+    ->implicit_val("hard");
   cli.add<bool>("--word-scores",
       "Print word-level scores");
 #ifdef USE_SENTENCEPIECE
@@ -686,7 +686,7 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
       ->implicit_val("cross-entropy");
   cli.add<std::string>("--alignment",
      "Return word alignments. Possible values: 0.0-1.0, hard, soft")
-     ->implicit_val("1"),
+     ->implicit_val("hard"),
 
   addSuboptionsInputLength(cli);
   addSuboptionsDevices(cli);

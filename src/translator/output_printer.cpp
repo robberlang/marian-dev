@@ -42,9 +42,9 @@ std::string OutputPrinter::getAlignment(const data::SoftAlignment& align) {
   if(alignment_ == "soft") {
     return data::SoftAlignToString(align);
   } else if(alignment_ == "hard") {
-    return data::ConvertSoftAlignToHardAlign(align, 1.f, true).toString();
+    return data::ConvertSoftAlignToHardAlign(align).toString();
   } else if(alignmentThreshold_ > 0.f) {
-    return data::ConvertSoftAlignToHardAlign(align, alignmentThreshold_, true).toString();
+    return data::ConvertSoftAlignToHardAlign(align, alignmentThreshold_).toString();
   } else {
     ABORT("Unrecognized word alignment type");
   }
@@ -82,7 +82,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
 
   const size_t maxSrcPos = (!align.empty() && !align[0].empty()) ? align[0].size() - 1 : 0;
   // get hard alignments, sorted by source word position, by which lineTags is also sorted
-  const auto hardAlignment = data::ConvertSoftAlignToHardAlign(align, 1.f, true);
+  const auto hardAlignment = data::ConvertSoftAlignToHardAlign(align);
   // vector of tags to be reinserted in the translation: tuple consists of the iterator in the
   // source, the target position, and the opening tag target position if applicable of the beginning
   // of whatever nest there may be
