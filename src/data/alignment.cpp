@@ -125,54 +125,73 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
         size_t s = std::get<0>(a);
         size_t t = std::get<1>(a);
         // sum of probabilities for a given subword not to exceed 1
-        if((sourceMatched[s].first == (size_t)-1
-            && targetMatched[t].second + alignSoft[t][s] <= 1.f)
-           || (targetMatched[t].first == (size_t)-1
-               && sourceMatched[s].second + alignSoft[t][s] <= 1.f)) {
-          std::pair<size_t, size_t> item(s, t);
-          auto lower1 = std::lower_bound(align1.begin(), align1.end(), item, srcCmp);
-          // considered alignment to be adjacent to its nearest neighbouring alignment
-          std::pair<size_t, size_t> floor1{0, 0},
-              ceiling1{alignSoft[0].size() - 1, alignSoft.size() - 1};
-          if(lower1 != align1.begin()) {
-            floor1 = *(std::prev(lower1));
-          }
-          if(lower1 != align1.end()) {
-            ceiling1 = *lower1;
-          }
-          if(t <= ceiling1.second && t >= floor1.second
-             && (((s == ceiling1.first || s + 1 == ceiling1.first)
-                  && (t == ceiling1.second || t + 1 == ceiling1.second))
-                 || ((floor1.first == s || floor1.first + 1 == s)
-                     && (floor1.second == t || floor1.second + 1 == t)))) {
-            auto lower2 = std::lower_bound(align2.begin(), align2.end(), item, trgCmp);
-            std::pair<size_t, size_t> floor2{0, 0},
-                ceiling2{alignSoft[0].size() - 1, alignSoft.size() - 1};
-            if(lower2 != align2.begin()) {
-              floor2 = *(std::prev(lower2));
-            }
-            if(lower2 != align2.end()) {
-              ceiling2 = *lower2;
-            }
-            if(s <= ceiling2.first && s >= floor2.first
-               && (((s == ceiling2.first || s + 1 == ceiling2.first)
-                    && (t == ceiling2.second || t + 1 == ceiling2.second))
-                   || ((floor2.first == s || floor2.first + 1 == s)
-                       && (floor2.second == t || floor2.second + 1 == t)))) {
-              align1.insert(lower1, item);
-              align2.insert(lower2, item);
-              if(sourceMatched[s].first == (size_t)-1) {
-                sourceMatched[s].first = t;
-              }
-              if(targetMatched[t].first == (size_t)-1) {
-                targetMatched[t].first = s;
-              }
-              sourceMatched[s].second += alignSoft[t][s];
-              targetMatched[t].second += alignSoft[t][s];
-              insert = true;
-            }
-          }
+        if(!((sourceMatched[s].first == (size_t)-1
+              && targetMatched[t].second + alignSoft[t][s] <= 1.f)
+             || (targetMatched[t].first == (size_t)-1
+                 && sourceMatched[s].second + alignSoft[t][s] <= 1.f))) {
+          continue;
         }
+        std::pair<size_t, size_t> item(s, t);
+        auto lower1 = std::lower_bound(align1.begin(), align1.end(), item, srcCmp);
+        // considered alignment to be adjacent to its nearest neighbouring alignment
+        std::pair<size_t, size_t> floor1{0, 0},
+            ceiling1{alignSoft[0].size() - 1, alignSoft.size() - 1};
+        if(lower1 != align1.begin()) {
+          floor1 = *(std::prev(lower1));
+        }
+        if(lower1 != align1.end()) {
+          ceiling1 = *lower1;
+        }
+        if (!(t <= ceiling1.second && t >= floor1.second)) {
+          continue;
+        }
+        if(!(((s == ceiling1.first || s + 1 == ceiling1.first)
+              && (t == ceiling1.second || t + 1 == ceiling1.second))
+             || ((floor1.first == s || floor1.first + 1 == s)
+                 && (floor1.second == t || floor1.second + 1 == t)))) {
+          continue;
+        }
+        if(lower1 != align1.end() && s == ceiling1.first && t + 1 != ceiling1.second) {
+          continue;
+        }
+        if(lower1 != align1.begin() && floor1.first == s && floor1.second + 1 != t) {
+          continue;
+        }
+        auto lower2 = std::lower_bound(align2.begin(), align2.end(), item, trgCmp);
+        std::pair<size_t, size_t> floor2{0, 0},
+            ceiling2{alignSoft[0].size() - 1, alignSoft.size() - 1};
+        if(lower2 != align2.begin()) {
+          floor2 = *(std::prev(lower2));
+        }
+        if(lower2 != align2.end()) {
+          ceiling2 = *lower2;
+        }
+        if(!(s <= ceiling2.first && s >= floor2.first)) {
+          continue;
+        }
+        if(!((((s == ceiling2.first || s + 1 == ceiling2.first)
+               && (t == ceiling2.second || t + 1 == ceiling2.second))
+              || ((floor2.first == s || floor2.first + 1 == s)
+                  && (floor2.second == t || floor2.second + 1 == t))))) {
+          continue;
+        }
+        if(lower2 != align2.end() && t == ceiling2.second && s + 1 != ceiling2.first) {
+          continue;
+        }
+        if(lower2 != align2.begin() && floor2.second == t && floor2.first + 1 != s) {
+          continue;
+        }
+        align1.insert(lower1, item);
+        align2.insert(lower2, item);
+        if(sourceMatched[s].first == (size_t)-1) {
+          sourceMatched[s].first = t;
+        }
+        if(targetMatched[t].first == (size_t)-1) {
+          targetMatched[t].first = s;
+        }
+        sourceMatched[s].second += alignSoft[t][s];
+        targetMatched[t].second += alignSoft[t][s];
+        insert = true;
       }
       if(!insert) {
         break;

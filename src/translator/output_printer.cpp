@@ -111,10 +111,17 @@ Words OutputPrinter::reinsertTags(const Words& words,
     }
 
     if(markupTag->getType() != TagType::CLOSE_TAG) {
-      if(markupTag->getType() == TagType::EMPTY_TAG && lineTag->second == 0) {
+      if(lineTag->second == 0 && markupTag->getType() == TagType::EMPTY_TAG) {
         translationTags.emplace_back(lineTag, translationTags.size(), 0, 1);
       } else if(curWordAlign != hardAlignment.end() /*&& curWordAlign->srcPos == lineTag->second*/) {
-        translationTags.emplace_back(lineTag, translationTags.size(), curWordAlign->tgtPos, 1);
+        if(markupTag->getType() == TagType::EMPTY_TAG
+           && (markupTag->getSpacing() & TAGSPACING_BEFORE) == 0
+           && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0
+           && curWordAlign != hardAlignment.begin()) {
+          translationTags.emplace_back(lineTag, translationTags.size(), std::prev(curWordAlign)->tgtPos + 1, 1);
+        } else {
+          translationTags.emplace_back(lineTag, translationTags.size(), curWordAlign->tgtPos, 1);
+        }
       } else {
         // place at the end - but if nested, then later will put at end of the nest once the nest is
         // established
