@@ -677,15 +677,25 @@ public:
                 if(tt != TagType::CLOSE_TAG) {
                   size_t previousWordsEndIdx = spmSentence.size();
                   for(size_t k = 0; k < spmSentence.size(); ++k) {
+                    std::string wrd = (*this)[sentence[i - k - 1]];
+                    if(((wrd.length() == 1 && k == i - 1) || (spacePrefix[i - k - 1] && wrd.length() == 4))
+                       && std::ispunct(wrd.back())) {
+                      // tag comes after the punctuation
+                      previousWordsEndIdx = spmSentence.size() - k;
+                      break;
+                    }
                     if(spacePrefix[i - k - 1]) {
                       previousWordsEndIdx = spmSentence.size() - k - 1;
                       break;
                     }
                   }
 
+                  bool spaceRequired = false;
                   std::vector<int> spmTwo;
                   if(!spmSentence.empty()) {
                     if(previousWordsEndIdx < spmSentence.size()) {
+                      size_t idx = i - spmSentence.size() + previousWordsEndIdx;
+                      spaceRequired = idx > 0 && spacePrefix[idx];
                       auto it = std::next(spmSentence.begin(), previousWordsEndIdx);
                       std::move(it, spmSentence.end(), std::back_inserter(spmTwo));
                       spmSentence.erase(it, spmSentence.end());
@@ -696,7 +706,6 @@ public:
                     line += encodeSpecialChars(detokenized);
                   }
 
-                  bool spaceRequired = !spmTwo.empty();
                   if(spaceRequired) {
                     line += ' ';
                   }
@@ -723,19 +732,26 @@ public:
                   }
                 } else {
                   // closing tag(s), move right
-                  size_t k = j + 1;
+                  size_t k = j;
                   for(; k < spacePrefix.size() && !spacePrefix[k]; ++k) {
-                    if(sentence[k].getMarkupTag() && sentence[k].toWordIndex() == (WordIndex)-1
-                       && sentence[k].getMarkupTag()->getType() != TagType::CLOSE_TAG) {
-                      // the next real word must require a leading space
-                      size_t l = k + 1;
-                      for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
-                      }
+                    if(sentence[k].getMarkupTag()) {
+                      if(sentence[k].toWordIndex() == (WordIndex)-1
+                         && sentence[k].getMarkupTag()->getType() != TagType::CLOSE_TAG) {
+                        // the next real word must require a leading space
+                        size_t l = k + 1;
+                        for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
+                        }
 
-                      // no change to the position of the tag to place
-                      if(l < spacePrefix.size() && !spacePrefix[l]) {
-                        k = j;
+                        // no change to the position of the tag to place
+                        if(l < spacePrefix.size() && !spacePrefix[l]) {
+                          k = j;
+                        }
+                        break;
                       }
+                    } else if((k + 1 >= spacePrefix.size() || spacePrefix[k + 1]
+                               || sentence[k + 1] == getEosId())
+                              && (*this)[sentence[k]].length() == 1
+                              && std::ispunct((*this)[sentence[k]].front())) {
                       break;
                     }
                   }

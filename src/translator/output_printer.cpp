@@ -42,9 +42,9 @@ std::string OutputPrinter::getAlignment(const data::SoftAlignment& align) {
   if(alignment_ == "soft") {
     return data::SoftAlignToString(align);
   } else if(alignment_ == "hard") {
-    return data::ConvertSoftAlignToHardAlign(align, 1.f).toString();
+    return data::ConvertSoftAlignToHardAlign(align, 1.f, true).toString();
   } else if(alignmentThreshold_ > 0.f) {
-    return data::ConvertSoftAlignToHardAlign(align, alignmentThreshold_).toString();
+    return data::ConvertSoftAlignToHardAlign(align, alignmentThreshold_, true).toString();
   } else {
     ABORT("Unrecognized word alignment type");
   }
