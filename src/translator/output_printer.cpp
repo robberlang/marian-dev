@@ -256,17 +256,25 @@ Words OutputPrinter::reinsertTags(const Words& words,
             // check that the chosen region doesn't overlap with other regions, causing bad syntax
             // also don't want tags nested within tags they weren't nested in on the source
             bool regionConflict = false;
-            for(const auto& trgTagRegion : trgTagRegions) {
+            for(const auto& existingRegion : trgTagRegions) {
+              if(existingRegion.first > unbalancedOpenTags.back().first) {
+                // nested
+                continue;
+              }
+              size_t existingRegionMinTgtPos
+                  = translationTags[existingRegion.first].tagPosition_.pos_;
+              size_t existingRegionMaxTgtPos
+                  = translationTags[existingRegion.second].tagPosition_.pos_;
               // if the new region would cause an overlap and bad syntax then move one end of it so
               // it borders rather than overlaps
-              if(minTgtPos <= trgTagRegion.first && maxTgtPos > trgTagRegion.first
-                 && maxTgtPos <= trgTagRegion.second) {
-                maxTgtPos = trgTagRegion.first;
-              } else if(minTgtPos < trgTagRegion.second && minTgtPos >= trgTagRegion.first
-                        && maxTgtPos >= trgTagRegion.second) {
-                minTgtPos = trgTagRegion.second;
-              } else if(minTgtPos < trgTagRegion.second
-                        && maxTgtPos > trgTagRegion.first) {  // nested or is nesting
+              if(minTgtPos <= existingRegionMinTgtPos && maxTgtPos > existingRegionMinTgtPos
+                 && maxTgtPos <= existingRegionMaxTgtPos) {
+                maxTgtPos = existingRegionMinTgtPos;
+              } else if(minTgtPos < existingRegionMaxTgtPos && minTgtPos >= existingRegionMinTgtPos
+                        && maxTgtPos >= existingRegionMaxTgtPos) {
+                minTgtPos = existingRegionMaxTgtPos;
+              } else if(minTgtPos < existingRegionMaxTgtPos
+                        && maxTgtPos > existingRegionMinTgtPos) {  // nested or is nesting
                 regionConflict = true;
                 break;
               }
@@ -285,9 +293,9 @@ Words OutputPrinter::reinsertTags(const Words& words,
                   translationTags[t].tagPosition_.pos_ = maxTgtPos;
                 }
               }
+              trgTagRegions.emplace_back(unbalancedOpenTags.back().first, translationTags.size());
               translationTags.emplace_back(
                   lineTag, unbalancedOpenTags.back().first, maxTgtPos, minTgtPos - maxTgtPos - 1);
-              trgTagRegions.emplace_back(minTgtPos, maxTgtPos);
             } else {
               // place these open/close tags at the end
               // put tags that were nested on the source at the end also so they remain nested
