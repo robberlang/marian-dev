@@ -804,6 +804,17 @@ public:
               bool emptyLine = line.empty();
               bool spaceNeededBeforeOpenTag
                   = spaceRequiredBeforeNextWord && tt != TagType::CLOSE_TAG;
+              if(spaceNeededBeforeOpenTag) {
+                for(size_t k = i; k < j; ++k) {
+                  const auto& markupTag = sentence[k].getMarkupTag();
+                  if((markupTag->getSpacing() & TAGSPACING_BEFORE) != 0
+                     || (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                    spaceNeededBeforeOpenTag = false;
+                    break;
+                  }
+                }
+              }
+              bool spaceAdded = false;
               for(size_t k = i; k < j; ++k) {
                 const auto& markupTag = sentence[k].getMarkupTag();
                 if(!line.empty() && line.back() != ' ') {
@@ -811,20 +822,21 @@ public:
                      && markupTag->getType() != TagType::CLOSE_TAG) {
                     line += ' ';
                     spaceNeededBeforeOpenTag = false;
+                    spaceAdded = true;
                   } else if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size())
                             && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
                     line += ' ';
+                    spaceAdded = true;
                   }
                 }
-
                 line += markupTag->getTag();
                 if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size() || emptyLine)
                    && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
                   line += ' ';
+                  spaceAdded = true;
                 }
               }
-
-              if(spaceRequiredBeforeNextWord && !line.empty() && line.back() != ' '
+              if(spaceRequiredBeforeNextWord && !spaceAdded && !line.empty()
                  && tt == TagType::CLOSE_TAG) {
                 line += ' ';
               }

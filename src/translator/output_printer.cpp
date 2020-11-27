@@ -4,24 +4,24 @@
 
 namespace marian {
 
-  struct TagPosition {
+struct TagPosition {
   size_t id_;
   size_t pos_;
   std::ptrdiff_t span_;
   TagPosition(size_t id, size_t pos, std::ptrdiff_t span) : id_(id), pos_(pos), span_(span) {}
-  };
+};
 
-  struct TagPlacement {
-  std::vector<std::pair<Word, size_t>>::const_iterator wordAlign_;
+struct TagPlacement {
+  std::vector<std::pair<Word, size_t>>::const_iterator lineTag_;
   TagPosition tagPosition_;
   std::vector<TagPosition> nests_;
 
-  TagPlacement(std::vector<std::pair<Word, size_t>>::const_iterator wordAlign,
+  TagPlacement(std::vector<std::pair<Word, size_t>>::const_iterator lineTag,
                size_t id,
                size_t pos,
                std::ptrdiff_t span)
-      : wordAlign_(wordAlign), tagPosition_(id, pos, span) {}
-  };
+      : lineTag_(lineTag), tagPosition_(id, pos, span) {}
+};
 
 data::SoftAlignment OutputPrinter::getSoftAlignment(const Hypothesis::PtrType& hyp) {
   data::SoftAlignment align;
@@ -116,9 +116,16 @@ Words OutputPrinter::reinsertTags(const Words& words,
       } else if(curWordAlign != hardAlignment.end() /*&& curWordAlign->srcPos == lineTag->second*/) {
         if(markupTag->getType() == TagType::EMPTY_TAG
            && (markupTag->getSpacing() & TAGSPACING_BEFORE) == 0
-           && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0
            && curWordAlign != hardAlignment.begin()) {
-          translationTags.emplace_back(lineTag, translationTags.size(), std::prev(curWordAlign)->tgtPos + 1, 1);
+          if(translationTags.empty() || translationTags.back().lineTag_->second != lineTag->second) {
+            translationTags.emplace_back(
+                lineTag, translationTags.size(), std::prev(curWordAlign)->tgtPos + 1, 1);
+          } else {
+            translationTags.emplace_back(lineTag,
+                                         translationTags.size(),
+                                         translationTags.back().tagPosition_.pos_,
+                                         translationTags.back().tagPosition_.span_);
+          }
         } else {
           translationTags.emplace_back(lineTag, translationTags.size(), curWordAlign->tgtPos, 1);
         }
@@ -134,7 +141,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
     } else {
       if(!unbalancedOpenTags.empty()) {
         if(lineTag->second == maxSrcPos
-           && translationTags[unbalancedOpenTags.back().first].wordAlign_->second == 0) {
+           && translationTags[unbalancedOpenTags.back().first].lineTag_->second == 0) {
           // this is the case where the tag encloses the entire source
           translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_ = 0;
           translationTags[unbalancedOpenTags.back().first].tagPosition_.span_ = words.size() + 1;
@@ -426,7 +433,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
       wordsWithTags.insert(wordsWithTags.end(), w, x);
       w = x;
     }
-    wordsWithTags.push_back(t->wordAlign_->first);
+    wordsWithTags.push_back(t->lineTag_->first);
   }
 
   wordsWithTags.insert(wordsWithTags.end(), w, words.end());
