@@ -13,6 +13,7 @@
 #include "common/tag_finder.h"
 #include "common/utils.h"
 #include "common/char_entities.h"
+#include "common/unicode_char_props.h"
 
 #include <sstream>
 #include <random>
@@ -678,8 +679,10 @@ public:
                   size_t previousWordsEndIdx = spmSentence.size();
                   for(size_t k = 0; k < spmSentence.size(); ++k) {
                     std::string wrd = (*this)[sentence[i - k - 1]];
-                    if(((wrd.length() == 1 && k == i - 1) || (spacePrefix[i - k - 1] && wrd.length() == 4))
-                       && std::ispunct(wrd.back())) {
+                    std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+                    if(((wrdU.length() == 1 && k == i - 1)
+                        || (spacePrefix[i - k - 1] && wrdU.length() == 4))
+                       && unicodecharprops::isUCharPunct(wrd.back())) {
                       // tag comes after the punctuation
                       previousWordsEndIdx = spmSentence.size() - k;
                       break;
@@ -749,10 +752,13 @@ public:
                         break;
                       }
                     } else if((k + 1 >= spacePrefix.size() || spacePrefix[k + 1]
-                               || sentence[k + 1] == getEosId())
-                              && (*this)[sentence[k]].length() == 1
-                              && std::ispunct((*this)[sentence[k]].front())) {
-                      break;
+                               || sentence[k + 1] == getEosId())) {
+                      std::string wrd = (*this)[sentence[k]];
+                      std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+                      if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
+                        // put the tag before the closing punctuation
+                        break;
+                      }
                     }
                   }
 
