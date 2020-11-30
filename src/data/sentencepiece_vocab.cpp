@@ -736,17 +736,27 @@ public:
                 } else {
                   // closing tag(s), move right
                   size_t k = j;
-                  for(; k < spacePrefix.size() && !spacePrefix[k]; ++k) {
+                  for(; k < spacePrefix.size() && !spacePrefix[k] && sentence[k] != getEosId();
+                      ++k) {
                     if(sentence[k].getMarkupTag()) {
                       if(sentence[k].toWordIndex() == (WordIndex)-1
                          && sentence[k].getMarkupTag()->getType() != TagType::CLOSE_TAG) {
-                        // the next real word must require a leading space
+                        // the next real word must require a leading space or eos or punct
                         size_t l = k + 1;
                         for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
                         }
 
                         // no change to the position of the tag to place
-                        if(l < spacePrefix.size() && !spacePrefix[l]) {
+                        if(l < spacePrefix.size() && !spacePrefix[l] && sentence[l] != getEosId()) {
+                          if((l + 1 >= spacePrefix.size() || spacePrefix[l + 1]
+                              || sentence[l + 1] == getEosId())) {
+                            std::string wrd = (*this)[sentence[l]];
+                            std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+                            if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
+                              // put the tag before the closing punctuation
+                              break;
+                            }
+                          }
                           k = j;
                         }
                         break;
