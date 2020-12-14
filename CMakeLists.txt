@@ -368,7 +368,7 @@ endif(COMPILE_CPU)
 
 ###############################################################################
 # Find OpenSSL
-set(BOOST_COMPONENTS regex)
+set(BOOST_COMPONENTS "")
 if(COMPILE_SERVER)
   find_package(OpenSSL)
   if(OpenSSL_FOUND)

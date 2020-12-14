@@ -26,42 +26,6 @@ namespace marian {
 
 #ifdef USE_SENTENCEPIECE
 
-typedef std::tuple<const char*, regex::regex, std::function<bool(const std::string&)>>
-    PlaceHolderProps;
-
-static const PlaceHolderProps placeHolderList[] = {
-    // URLs (from https://gist.github.com/dperini/729294
-    // see also https://mathiasbynens.be/demo/url-regex)
-    {"__ent_url_",
-     regex::regex(
-         R"((?:(?:(?:https?|ftp):)?\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z0-9\u00a1-\uffff][a-z0-9\u00a1-\uffff_-]{0,62})?[a-z0-9\u00a1-\uffff]\.)+(?:[a-z\u00a1-\uffff]{2,}\.?))(?::\d{2,5})?(?:[/?#]\S*)?)"),
-     [](const std::string& str) { return str.find("//") != std::string::npos; }},
-    // Email (from https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address,
-    // final character '+' changed from '*')
-    {"__ent_email_",
-     regex::regex(
-         R"([a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)"),
-     [](const std::string& str) { return str.find('@') != std::string::npos; }},
-    // Credit card (based on https://stackoverflow.com/a/23231321/3832970, test:
-    // https://regex101.com/r/hnvNqh/2
-    {"__ent_ccard_",
-     regex::regex(
-         R"((?<!\d)(?:3[47][0-9]{13}|(6541|6556)[0-9]{12}|389[0-9]{11}|3(?:0[0-5]|[68][0-9])[0-9]{11}|65[4-9][0-9]{13}|64[4-9][0-9]{13}|6011[0-9]{12}|(622(?:12[6-9]|1[3-9][0-9]|[2-8][0-9][0-9]|9[01][0-9]|92[0-5])[0-9]{10})|63[7-9][0-9]{13}|(?:2131|1800|35\d{3})\d{11}|9[0-9]{15}|(6304|6706|6709|6771)[0-9]{12,15}|(5018|5020|5038|6304|6759|6761|6763)[0-9]{8,15}|(5[1-5][0-9]{14}|2(22[1-9][0-9]{12}|2[3-9][0-9]{13}|[3-6][0-9]{14}|7[0-1][0-9]{13}|720[0-9]{12}))|(6334|6767)[0-9]{12}|(6334|6767)[0-9]{14}|(6334|6767)[0-9]{15}|(4903|4905|4911|4936|6333|6759)[0-9]{12}|(4903|4905|4911|4936|6333|6759)[0-9]{14}|(4903|4905|4911|4936|6333|6759)[0-9]{15}|564182[0-9]{10}|564182[0-9]{12}|564182[0-9]{13}|633110[0-9]{10}|633110[0-9]{12}|633110[0-9]{13}|(62[0-9]{14,17})|4[0-9]{12}(?:[0-9]{3})?|(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}))(?!\d))"),
-     [](const std::string& str) { return true; }},
-    // Numeric Date (no leap year checking, https://regex101.com/r/dyzdkT/2)
-    {"__ent_date_",
-     regex::regex(
-         R"((?<!\d)(?<!\d[- /.])(?:(?:19|20)?\d\d([- /.])(?:0[1-9]|1[012])\1(?:0[1-9]|[12][0-9]|3[01])|(?:0[1-9]|1[012])([- /.])(?:0[1-9]|[12][0-9]|3[01])\2(?:19|20)?\d\d|(?:0[1-9]|[12][0-9]|3[01])([- /.])(?:0[1-9]|1[012])\3(?:19|20)?\d\d)(?![- /.]?\d))"),
-     [](const std::string& str) { return true; }},
-    // Phone (Test: https://regex101.com/r/qmMD9w/1)
-    {"__ent_phone_",
-     regex::regex(
-         R"((?<!\d)(?<!\d[\t\p{Zs}-])(?!\s)(?:\+?\d+[\t\p{Zs}-]?)?[\(\[\t\p{Zs}-]{0,2}\d{3,5}[]).\t\p{Zs}-]{0,2}\d{2,3}[.\t\p{Zs}-]?\d{2,4}(?:[.\t\p{Zs}-]?\d{2,4})?(?![.\t\p{Zs}-]?\d))"),
-     [](const std::string& str) { return true; }},
-};
-
-static const size_t placeHolderListLength = sizeof(placeHolderList) / sizeof(PlaceHolderProps);
-
 // Wrapper around https://github.com/google/sentencepiece
 class SentencePieceVocab : public IVocab {
 private:
@@ -288,28 +252,6 @@ public:
     return encoded;
   }
 
-  static std::string maskURLsEmailAddysEtc(
-      const std::string& text,
-      std::vector<std::pair<std::size_t, std::string>>& replacedStrings) {
-    std::string masked = text;
-
-    for(size_t i = 0; i < placeHolderListLength; ++i) {
-      const auto& phItem = placeHolderList[i];
-      if(std::get<2>(phItem)(masked)) {
-        masked = regex::regex_replace(
-            masked, std::get<1>(phItem), [&replacedStrings, i](const regex::smatch& m) {
-              std::string str = m.str(0);
-              if(str.find("__ent_") == std::string::npos) {
-                replacedStrings.emplace_back(i, str);
-                return std::string(std::get<0>(placeHolderList[i]));
-              }
-              return str;
-            });
-      }
-    }
-    return masked;
-  }
-
   static std::string decodeEntities(const std::string& text, InputFormat inputFormat) {
     std::string decoded;
     size_t p = 0, q = 0;
@@ -395,11 +337,9 @@ public:
     InputFormat inputFormat = ConvertInputFormat(options_->get<std::string>("input-format", ""));
     Words words;
     std::vector<int> spmIds;
-    std::vector<std::pair<std::size_t, std::string>> replacedStrings;
     if(inference || alpha_ == 0) {
       if(!inference || inputFormat == InputFormat::PLAINTEXT) {
-        std::string masked = maskURLsEmailAddysEtc(line, replacedStrings);
-        spm_->Encode(masked, &spmIds);
+        spm_->Encode(line, &spmIds);
       } else {
         bool entitizeTags = options_->get<bool>("entitize-tags", false);
         sentencepiece::normalizer::AddDummyPrefix addDummyPrefix
@@ -462,7 +402,6 @@ public:
               }
             }
             prefix = decodeEntities(prefix, inputFormat);
-            prefix = maskURLsEmailAddysEtc(prefix, replacedStrings);
             spm_->Encode(prefix, &spmIds, addDummyPrefix);
             for(auto&& spmId : spmIds)
               words.emplace_back(Word::fromWordIndex(spmId));
@@ -582,10 +521,6 @@ public:
 
     if(addEOS)
       words.emplace_back(getEosId());
-    for(const auto& r : replacedStrings) {
-      words.push_back(
-          Word::fromWordIndexAndTag(r.first, r.second, TagType::NONE, TAGSPACING_NONE));
-    }
     return words;
   }
 
@@ -600,16 +535,11 @@ public:
       // convert vector of Word to vector of int
       std::vector<int> spmSentence;
       spmSentence.reserve(sentence.size());
-      std::vector<size_t> placeHolderIndexes;
       if(inputFormat == InputFormat::PLAINTEXT) {
         for(size_t i = 0; i < sentence.size(); ++i) {
           const auto& word = sentence[i];
           WordIndex wordIndex = word.toWordIndex();
-          if(!word.getMarkupTag()) {
-            spmSentence.push_back(wordIndex);
-          } else if(word.getMarkupTag()->getType() == TagType::NONE) {
-            placeHolderIndexes.push_back(i);
-          }
+          spmSentence.push_back(wordIndex);
         }
         spm_->Decode(spmSentence, &line);
       } else {
@@ -858,9 +788,6 @@ public:
               }
             }
             i = j;
-          } else if(word.getMarkupTag()->getType() == TagType::NONE) {
-            placeHolderIndexes.push_back(i);
-            ++i;
           } else {
             entitizedTagIndexes.push_back(i);
             ++i;
@@ -892,26 +819,6 @@ public:
           line = regex::regex_replace(line, regex::regex("__ent_[0-9]+_"), "");
         }
       }
-
-      line = regex::regex_replace(
-          line,
-          regex::regex("__ent_[^_]+_"),
-          [&placeHolderIndexes, &sentence](const regex::smatch& m) {
-            std::string str(m.str(0));
-            for(size_t i = 0; i < placeHolderListLength; ++i) {
-              if(str == std::get<0>(placeHolderList[i])) {
-                for(auto it = placeHolderIndexes.begin(); it != placeHolderIndexes.end(); ++it) {
-                  if(sentence[*it].toWordIndex() == i) {
-                    size_t j = *it;
-                    placeHolderIndexes.erase(it);
-                    return sentence[j].getMarkupTag()->getTag();
-                  }
-                }
-                return std::string();
-              }
-            }
-            return std::string();
-          });
     }
     return line;
   }

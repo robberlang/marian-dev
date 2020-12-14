@@ -91,15 +91,10 @@ Words OutputPrinter::reinsertTags(const Words& words,
   std::vector<std::pair<size_t, size_t>> trgTagRegions;
   size_t maxOverallTgtPos = 0;
   auto curWordAlign = hardAlignment.begin();
-  auto lineTag = lineTags.begin();
-  for(; lineTag != lineTags.end(); ++lineTag) {
+  for(auto lineTag = lineTags.begin(); lineTag != lineTags.end(); ++lineTag) {
     const auto& markupTag = lineTag->first.getMarkupTag();
     if(!markupTag) // error
       continue;
-
-    // placeholders at end, not actually tags
-    if(markupTag->getType() == TagType::NONE)
-      break;
 
     for(; curWordAlign != hardAlignment.end(); ++curWordAlign) {
       if(curWordAlign->srcPos >= lineTag->second) {
@@ -437,9 +432,6 @@ Words OutputPrinter::reinsertTags(const Words& words,
   }
 
   wordsWithTags.insert(wordsWithTags.end(), w, words.end());
-  for(; lineTag != lineTags.end(); ++lineTag) {
-    wordsWithTags.emplace_back(lineTag->first);
-  }
   return wordsWithTags;
 }
 
