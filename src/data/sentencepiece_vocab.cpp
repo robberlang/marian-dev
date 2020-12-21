@@ -639,18 +639,29 @@ public:
                     line += encodeSpecialChars(detokenized);
                   }
 
-                  if(spaceRequired) {
-                    line += ' ';
+                  bool spaceNeededBeforeOpenTag = spaceRequired;
+                  if(spaceNeededBeforeOpenTag) {
+                    for(size_t m = i; m < j; ++m) {
+                      const auto& markupTag = sentence[m].getMarkupTag();
+                      if((markupTag->getSpacing() & TAGSPACING_BEFORE) != 0
+                         || (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                        spaceNeededBeforeOpenTag = false;
+                        break;
+                      }
+                    }
                   }
 
                   bool emptyLine = line.empty();
                   for(size_t m = i; m < j; ++m) {
                     const auto& markupTag = sentence[m].getMarkupTag();
-                    if(spaceRequired && !line.empty() && line.back() != ' '
-                       && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
-                      line += ' ';
+                    if(!line.empty() && line.back() != ' ') {
+                      if(spaceNeededBeforeOpenTag && markupTag->getType() != TagType::CLOSE_TAG) {
+                        line += ' ';
+                        spaceNeededBeforeOpenTag = false;
+                      } else if(spaceRequired && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
+                        line += ' ';
+                      }
                     }
-
                     line += markupTag->getTag();
                     if((spaceRequired || emptyLine)
                        && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
@@ -717,22 +728,25 @@ public:
 
                   j = k;
                   bool spaceRequired = (j < spacePrefix.size() && spacePrefix[j]);
+                  bool spaceAdded = false;
                   for(size_t m = i; m < j; ++m) {
                     const auto& markupTag = sentence[m].getMarkupTag();
                     if(markupTag && sentence[m].toWordIndex() == (WordIndex)-1) {
                       if(spaceRequired && !line.empty() && line.back() != ' '
                          && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
                         line += ' ';
+                        spaceAdded = true;
                       }
 
                       line += markupTag->getTag();
                       if(spaceRequired && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
                         line += ' ';
+                        spaceAdded = true;
                       }
                     }
                   }
 
-                  if(spaceRequired && !line.empty() && line.back() != ' ') {
+                  if(spaceRequired && !spaceAdded) {
                     line += ' ';
                   }
                 }
@@ -782,8 +796,7 @@ public:
                   spaceAdded = true;
                 }
               }
-              if(spaceRequiredBeforeNextWord && !spaceAdded && !line.empty()
-                 && tt == TagType::CLOSE_TAG) {
+              if(spaceRequiredBeforeNextWord && !spaceAdded && tt == TagType::CLOSE_TAG) {
                 line += ' ';
               }
             }
