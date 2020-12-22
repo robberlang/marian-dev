@@ -142,13 +142,13 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
         if(lower1 != align1.end()) {
           ceiling1 = *lower1;
         }
-        if (!(t <= ceiling1.second && t >= floor1.second)) {
-          continue;
-        }
+        //if (!(t <= ceiling1.second && t >= floor1.second)) {
+        //  continue;
+        //}
         if(!(((s == ceiling1.first || s + 1 == ceiling1.first)
-              && (t == ceiling1.second || t + 1 == ceiling1.second))
+              || (t == ceiling1.second || t + 1 == ceiling1.second))
              || ((floor1.first == s || floor1.first + 1 == s)
-                 && (floor1.second == t || floor1.second + 1 == t)))) {
+                 || (floor1.second == t || floor1.second + 1 == t)))) {
           continue;
         }
         if(lower1 != align1.end() && s == ceiling1.first && t + 1 != ceiling1.second) {
@@ -166,13 +166,13 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
         if(lower2 != align2.end()) {
           ceiling2 = *lower2;
         }
-        if(!(s <= ceiling2.first && s >= floor2.first)) {
-          continue;
-        }
+        //if(!(s <= ceiling2.first && s >= floor2.first)) {
+        //  continue;
+        //}
         if(!((((s == ceiling2.first || s + 1 == ceiling2.first)
-               && (t == ceiling2.second || t + 1 == ceiling2.second))
+               || (t == ceiling2.second || t + 1 == ceiling2.second))
               || ((floor2.first == s || floor2.first + 1 == s)
-                  && (floor2.second == t || floor2.second + 1 == t))))) {
+                  || (floor2.second == t || floor2.second + 1 == t))))) {
           continue;
         }
         if(lower2 != align2.end() && t == ceiling2.second && s + 1 != ceiling2.first) {
