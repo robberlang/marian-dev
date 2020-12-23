@@ -63,38 +63,44 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
               [](const std::tuple<size_t, size_t, float>& a, std::tuple<size_t, size_t, float>& b) {
                 return std::get<2>(a) > std::get<2>(b);
               });
-    std::vector<size_t> sourceMatched(alignSoft[0].size(), (size_t)-1);
-    std::vector<size_t> targetMatched(alignSoft.size(), (size_t)-1);
+    std::vector<std::pair<size_t, float>> sourceMatched(alignSoft[0].size(),
+                                                        std::pair<size_t, float>((size_t)-1, 0.f));
+    std::vector<std::pair<size_t, float>> targetMatched(alignSoft.size(),
+                                                        std::pair<size_t, float>((size_t)-1, 0.f));
     std::vector<std::pair<size_t, size_t>> align1, align2;
     // add alignments that are the best for both source and target
     // to be follwed by adding in alignments that fit into the structure created by these
     for(const auto& a : alignProbs) {
       size_t s = std::get<0>(a);
       size_t t = std::get<1>(a);
-      if(sourceMatched[s] == (size_t)-1) {
-        sourceMatched[s] = t;
-        if(targetMatched[t] == (size_t)-1) {
-          targetMatched[t] = s;
+      if(sourceMatched[s].first == (size_t)-1) {
+        sourceMatched[s].first = t;
+        if(targetMatched[t].first == (size_t)-1) {
+          targetMatched[t].first = s;
+          sourceMatched[s].second = alignSoft[t][s];
+          targetMatched[t].second = alignSoft[t][s];
           align1.emplace_back(s, t);
         }
-      } else if(targetMatched[t] == (size_t)-1) {
-        targetMatched[t] = s;
+      } else if(targetMatched[t].first == (size_t)-1) {
+        targetMatched[t].first = s;
       }
     }
     for(size_t s = 0; s < sourceMatched.size(); ++s) {
-      if(sourceMatched[s] != (size_t)-1 && targetMatched[sourceMatched[s]] != s) {
-        sourceMatched[s] = (size_t)-1;
+      if(sourceMatched[s].first != (size_t)-1 && targetMatched[sourceMatched[s].first].first != s) {
+        sourceMatched[s].first = (size_t)-1;
       }
     }
     for(size_t t = 0; t < targetMatched.size(); ++t) {
-      if(targetMatched[t] != (size_t)-1 && sourceMatched[targetMatched[t]] != t) {
-        targetMatched[t] = (size_t)-1;
+      if(targetMatched[t].first != (size_t)-1 && sourceMatched[targetMatched[t].first].first != t) {
+        targetMatched[t].first = (size_t)-1;
       }
     }
 
     if(matchLastWithLast) {
-      sourceMatched[alignSoft[0].size() - 1] = alignSoft.size() - 1;
-      targetMatched[alignSoft.size() - 1] = alignSoft[0].size() - 1;
+      sourceMatched[alignSoft[0].size() - 1]
+          = {alignSoft.size() - 1, alignSoft[alignSoft.size() - 1][alignSoft[0].size() - 1]};
+      targetMatched[alignSoft.size() - 1]
+          = {alignSoft[0].size() - 1, alignSoft[alignSoft.size() - 1][alignSoft[0].size() - 1]};
       align1.emplace_back(alignSoft[0].size() - 1, alignSoft.size() - 1);
     }
 
@@ -118,7 +124,12 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
       for(const auto& a : alignProbs) {
         size_t s = std::get<0>(a);
         size_t t = std::get<1>(a);
-        if(!(sourceMatched[s] == (size_t)-1 || targetMatched[t] == (size_t)-1)) {
+        // sum of probabilities for a given subword not to exceed 1
+        if(!((sourceMatched[s].first == (size_t)-1
+              && (targetMatched[t].second + alignSoft[t][s] <= 1.f || alignSoft[t][s] > 0.5f))
+             || (targetMatched[t].first == (size_t)-1
+                 && (sourceMatched[s].second + alignSoft[t][s] <= 1.f
+                     || alignSoft[t][s] > 0.5f)))) {
           continue;
         }
         std::pair<size_t, size_t> item(s, t);
@@ -173,12 +184,14 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
         }
         align1.insert(lower1, item);
         align2.insert(lower2, item);
-        if(sourceMatched[s] == (size_t)-1) {
-          sourceMatched[s] = t;
+        if(sourceMatched[s].first == (size_t)-1) {
+          sourceMatched[s].first = t;
         }
-        if(targetMatched[t] == (size_t)-1) {
-          targetMatched[t] = s;
+        if(targetMatched[t].first == (size_t)-1) {
+          targetMatched[t].first = s;
         }
+        sourceMatched[s].second += alignSoft[t][s];
+        targetMatched[t].second += alignSoft[t][s];
         insert = true;
       }
       if(!insert) {
