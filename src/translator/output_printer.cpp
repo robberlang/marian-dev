@@ -273,6 +273,8 @@ Words OutputPrinter::reinsertTags(const Words& words,
             float longestContiguousScore = longestContiguousStart->second;
             auto curContiguousStart = longestContiguousStart;
             float curContiguousScore = longestContiguousScore;
+            minTgtPos = (size_t)-1;
+            maxTgtPos = (size_t)-1;
             for(auto it = std::next(allTgtPoses.begin()); ; ++it) {
               if(it == allTgtPoses.end() || it->first != std::prev(it)->first + 1) {
                 size_t curContiguousLength = std::distance(curContiguousStart, it);
@@ -283,6 +285,12 @@ Words OutputPrinter::reinsertTags(const Words& words,
                   longestContiguousStart = curContiguousStart;
                   longestContiguousScore = curContiguousScore;
                 }
+                if(curContiguousLength > 1) {
+                  maxTgtPos = std::prev(it)->first + 1;
+                  if(minTgtPos == (size_t)-1) {
+                    minTgtPos = curContiguousStart->first;
+                  }
+                }
                 if(it == allTgtPoses.end()) {
                   break;
                 }
@@ -292,8 +300,10 @@ Words OutputPrinter::reinsertTags(const Words& words,
               curContiguousScore += it->second;
             }
 
-            minTgtPos = longestContiguousStart->first;
-            maxTgtPos = std::next(longestContiguousStart, longestContiguousLength - 1)->first + 1;
+            if(minTgtPos == (size_t)-1) {
+              minTgtPos = longestContiguousStart->first;
+              maxTgtPos = std::next(longestContiguousStart, longestContiguousLength - 1)->first + 1;
+            }
 
             // do not set maxTgtPos so that it encloses the EOS token
             if(maxTgtPos == words.size()) {
