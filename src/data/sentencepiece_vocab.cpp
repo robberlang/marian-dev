@@ -702,13 +702,17 @@ public:
                         }
                         break;
                       }
-                    } else if((k + 1 >= spacePrefix.size() || spacePrefix[k + 1]
-                               || sentence[k + 1] == getEosId())) {
-                      std::string wrd = (*this)[sentence[k]];
-                      std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
-                      if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
-                        // put the tag before the closing punctuation
-                        break;
+                    } else {
+                      size_t l = k + 1;
+                      for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
+                      }
+                      if((l >= spacePrefix.size() || spacePrefix[l] || sentence[l] == getEosId())) {
+                        std::string wrd = (*this)[sentence[k]];
+                        std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+                        if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
+                          // put the tag before the closing punctuation
+                          break;
+                        }
                       }
                     }
                   }

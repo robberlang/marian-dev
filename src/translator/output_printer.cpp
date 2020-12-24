@@ -276,7 +276,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
             minTgtPos = (size_t)-1;
             maxTgtPos = (size_t)-1;
             for(auto it = std::next(allTgtPoses.begin()); ; ++it) {
-              if(it == allTgtPoses.end() || it->first != std::prev(it)->first + 1) {
+              if(it == allTgtPoses.end() || it->first > std::prev(it)->first + 2) {
                 size_t curContiguousLength = std::distance(curContiguousStart, it);
                 if(curContiguousLength > longestContiguousLength
                    || (curContiguousLength == longestContiguousLength
@@ -285,7 +285,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
                   longestContiguousStart = curContiguousStart;
                   longestContiguousScore = curContiguousScore;
                 }
-                if(curContiguousLength > 1) {
+                if(curContiguousLength > 1 && curContiguousScore > 0.5f) {
                   maxTgtPos = std::prev(it)->first + 1;
                   if(minTgtPos == (size_t)-1) {
                     minTgtPos = curContiguousStart->first;
