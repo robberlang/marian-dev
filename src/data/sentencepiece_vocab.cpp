@@ -519,6 +519,20 @@ public:
         words.emplace_back(Word::fromWordIndex(spmId));
     }
 
+    // first non-tag token is just a space? remove it - often such is added with CJK and is not
+    // desirable in a non-spacing language for both translation and alignment
+    for(auto it = words.begin(); it != words.end(); ++it) {
+      if(!it->getMarkupTag()) {
+        const auto& curWord = (*this)[*it];
+        // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
+        if(curWord.size() == 3 && curWord[0] == (char)0xe2 && curWord[1] == (char)0x96
+           && curWord[2] == (char)0x81) {
+          words.erase(it);
+        }
+        break;
+      }
+    }
+
     if(addEOS)
       words.emplace_back(getEosId());
     return words;

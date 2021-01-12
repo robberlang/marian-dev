@@ -263,46 +263,49 @@ Words OutputPrinter::reinsertTags(const Words& words,
               }
             }
 
-            std::sort(allTgtPoses.begin(),
-                      allTgtPoses.end(),
-                      [](const std::pair<size_t, float>& a, const std::pair<size_t, float>& b) {
-                        return a.first < b.first;
-                      });
-            auto longestContiguousStart = allTgtPoses.begin();
-            size_t longestContiguousLength = 1;
-            float longestContiguousScore = longestContiguousStart->second;
-            auto curContiguousStart = longestContiguousStart;
-            float curContiguousScore = longestContiguousScore;
-            minTgtPos = (size_t)-1;
-            maxTgtPos = (size_t)-1;
-            for(auto it = std::next(allTgtPoses.begin()); ; ++it) {
-              if(it == allTgtPoses.end() || it->first > std::prev(it)->first + 2) {
-                size_t curContiguousLength = std::distance(curContiguousStart, it);
-                if(curContiguousLength > longestContiguousLength
-                   || (curContiguousLength == longestContiguousLength
-                       && curContiguousScore > longestContiguousScore)) {
-                  longestContiguousLength = curContiguousLength;
-                  longestContiguousStart = curContiguousStart;
-                  longestContiguousScore = curContiguousScore;
-                }
-                if(curContiguousLength > 1 && curContiguousScore > 0.5f) {
-                  maxTgtPos = std::prev(it)->first + 1;
-                  if(minTgtPos == (size_t)-1) {
-                    minTgtPos = curContiguousStart->first;
+            if(!allTgtPoses.empty()) {
+              std::sort(allTgtPoses.begin(),
+                        allTgtPoses.end(),
+                        [](const std::pair<size_t, float>& a, const std::pair<size_t, float>& b) {
+                          return a.first < b.first;
+                        });
+              auto longestContiguousStart = allTgtPoses.begin();
+              size_t longestContiguousLength = 1;
+              float longestContiguousScore = longestContiguousStart->second;
+              auto curContiguousStart = longestContiguousStart;
+              float curContiguousScore = longestContiguousScore;
+              minTgtPos = (size_t)-1;
+              maxTgtPos = (size_t)-1;
+              for(auto it = std::next(allTgtPoses.begin());; ++it) {
+                if(it == allTgtPoses.end() || it->first > std::prev(it)->first + 2) {
+                  size_t curContiguousLength = std::distance(curContiguousStart, it);
+                  if(curContiguousLength > longestContiguousLength
+                     || (curContiguousLength == longestContiguousLength
+                         && curContiguousScore > longestContiguousScore)) {
+                    longestContiguousLength = curContiguousLength;
+                    longestContiguousStart = curContiguousStart;
+                    longestContiguousScore = curContiguousScore;
                   }
+                  if(curContiguousLength > 1 && curContiguousScore > 0.5f) {
+                    maxTgtPos = std::prev(it)->first + 1;
+                    if(minTgtPos == (size_t)-1) {
+                      minTgtPos = curContiguousStart->first;
+                    }
+                  }
+                  if(it == allTgtPoses.end()) {
+                    break;
+                  }
+                  curContiguousStart = it;
+                  curContiguousScore = 0.f;
                 }
-                if(it == allTgtPoses.end()) {
-                  break;
-                }
-                curContiguousStart = it;
-                curContiguousScore = 0.f;
+                curContiguousScore += it->second;
               }
-              curContiguousScore += it->second;
-            }
 
-            if(minTgtPos == (size_t)-1) {
-              minTgtPos = longestContiguousStart->first;
-              maxTgtPos = std::next(longestContiguousStart, longestContiguousLength - 1)->first + 1;
+              if(minTgtPos == (size_t)-1) {
+                minTgtPos = longestContiguousStart->first;
+                maxTgtPos
+                    = std::next(longestContiguousStart, longestContiguousLength - 1)->first + 1;
+              }
             }
 
             // do not set maxTgtPos so that it encloses the EOS token
