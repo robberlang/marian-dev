@@ -53,13 +53,15 @@ public:
 typedef IndexType WordIndex;    // WordIndex is used for words or tokens arranged in consecutive order
 class Word {                    // Word is an abstraction of a unique id, not necessarily consecutive
   WordIndex wordId_;
+  bool isSpaceSymbol_{false};
   Ptr<MarkupTag> markupTag_;
-  explicit Word(std::size_t wordId) : wordId_((WordIndex)wordId) {}
+  explicit Word(std::size_t wordId, bool isSpaceSymbol = false)
+      : wordId_((WordIndex)wordId), isSpaceSymbol_(isSpaceSymbol) {}
   explicit Word(std::size_t wordId, const std::string& tag, TagType tagType, char tagSpacing)
-      : wordId_((WordIndex)wordId), markupTag_(New<MarkupTag>(tag, tagType, tagSpacing)) {}
+      : wordId_((WordIndex)wordId), isSpaceSymbol_(false), markupTag_(New<MarkupTag>(tag, tagType, tagSpacing)) {}
 
 public:
-  static Word fromWordIndex(std::size_t wordId) { return Word(wordId); }
+  static Word fromWordIndex(std::size_t wordId, bool isSpaceSymbol = false) { return Word(wordId, isSpaceSymbol); }
   static Word fromWordIndexAndTag(std::size_t wordId,
                                   const std::string& tag,
                                   TagType tagType,
@@ -68,6 +70,8 @@ public:
   }
   const WordIndex& toWordIndex() const { return wordId_; }
   void setWordIndex(WordIndex wordId) { wordId_ = wordId; }
+  bool isSpaceSymbol() const { return isSpaceSymbol_; }
+  void setIsSpaceSymbol(bool isSpaceSymbol) { isSpaceSymbol_ = isSpaceSymbol; }
   const Ptr<MarkupTag>& getMarkupTag() const { return markupTag_; };
   std::string toString() const { return std::to_string(wordId_); }
 

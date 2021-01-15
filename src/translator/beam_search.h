@@ -301,8 +301,10 @@ public:
     for(int i = 0; i < origDimBatch; ++i) {
       size_t sentId = batch->getSentenceIds()[i];
       const auto& sentTags = batch->getSentenceTags()[i];
+      bool sentSpaceSymbolStart = batch->getSentenceSpaceSymbolStarts()[i];
       histories[i] = New<History>(sentId,
                                   sentTags,
+                                  sentSpaceSymbolStart,
                                   options_->get<float>("normalize"),
                                   options_->get<float>("word-penalty"));
     }

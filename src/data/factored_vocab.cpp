@@ -587,7 +587,14 @@ void FactoredVocab::constructNormalizationInfoForVocab() {
   return utils::join(decoded, " ");
 }
 
-// diagnostics version of decode() that will not fail on partial words, will print EOS, and is a little slower
+// determine if the sentence starts with a word that is the sentence symbol
+/*virtual*/ bool FactoredVocab::sentenceStartsWithSpaceSymbolWord(
+    const Words& sentence) const /*override final*/ {
+  return false;
+}
+
+// diagnostics version of decode() that will not fail on partial words, will print EOS, and is a
+// little slower
 std::string FactoredVocab::decodeForDiagnostics(const Words& sentence) const {
   std::vector<std::string> decoded; decoded.reserve(sentence.size());
   for (auto w : sentence)

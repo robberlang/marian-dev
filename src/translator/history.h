@@ -24,6 +24,7 @@ private:
 public:
   History(size_t lineNo,
           std::vector<std::pair<Word, size_t>> lineTags,
+          bool lineSpaceSymbolStart,
           float alpha = 1.f,
           float wp_ = 0.f);
 
@@ -66,12 +67,14 @@ public:
 
   size_t getLineNum() const { return lineNo_; }
   const std::vector<std::pair<Word, size_t>>& getLineTags() const { return lineTags_; }
+  bool getLineSpaceSymbolStart() const { return lineSpaceSymbolStart_; }
 
 private:
   std::vector<Beam> history_; // [time step][index into beam] search grid @TODO: simplify as this is currently an expensive length count
   std::priority_queue<SentenceHypothesisCoord> topHyps_; // all sentence hypotheses (those that reached eos), sorted by score
   size_t lineNo_;
   std::vector<std::pair<Word, size_t>> lineTags_;
+  bool lineSpaceSymbolStart_;
   float alpha_;
   float wp_;
 };

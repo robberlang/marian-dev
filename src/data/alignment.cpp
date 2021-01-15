@@ -33,16 +33,28 @@ std::string WordAlignment::toString() const {
   return str.str();
 }
 
-WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
+WordAlignment ConvertSoftAlignToHardAlign(const SoftAlignment& alignSoft,
                                           float threshold /*= 0.1f*/,
                                           bool useStrategy /*=true*/,
-                                          bool matchLastWithLast /*= true*/) {
+                                          bool matchLastWithLast /*= true*/,
+                                          bool lineSpaceSymbolStart /*= false*/,
+                                          bool translationSpaceSymbolStart /*= false*/) {
   WordAlignment align;
   if(alignSoft.empty()) {
     return align;
   }
+  size_t startSrc = 0;
+  size_t startTrg = 0;
   size_t endSrc = alignSoft[0].size();
   size_t endTrg = alignSoft.size();
+  if(lineSpaceSymbolStart) {
+    // don't align leading space symbol
+    ++startSrc;
+  }
+  if(translationSpaceSymbolStart) {
+    // don't align leading space symbol
+    ++startTrg;
+  }
   if(matchLastWithLast) {
     --endSrc;
     --endTrg;
@@ -50,9 +62,9 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
   // Alignments by maximum value
   if(useStrategy) {
     std::vector<std::tuple<size_t, size_t, float>> alignProbs;
-    for(size_t t = 0; t < endTrg; ++t) {
+    for(size_t t = startTrg; t < endTrg; ++t) {
       // Retrieved alignments are in reversed order
-      for(size_t s = 0; s < endSrc; ++s) {
+      for(size_t s = startSrc; s < endSrc; ++s) {
         if(alignSoft[t][s] > threshold) {
           alignProbs.emplace_back(s, t, alignSoft[t][s]);
         }
@@ -201,9 +213,9 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
     }
   } else {
     // All alignments by greather-than-threshold
-    for(size_t t = 0; t < endTrg; ++t) {
+    for(size_t t = startTrg; t < endTrg; ++t) {
       // Retrieved alignments are in reversed order
-      for(size_t s = 0; s < endSrc; ++s) {
+      for(size_t s = startSrc; s < endSrc; ++s) {
         if(alignSoft[t][s] > threshold) {
           align.push_back(s, t, alignSoft[t][s]);
         }
@@ -222,7 +234,7 @@ WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
   return align;
 }
 
-std::string SoftAlignToString(SoftAlignment align) {
+std::string SoftAlignToString(const SoftAlignment& align) {
   std::stringstream str;
   bool first = true;
   for(size_t t = 0; t < align.size(); ++t) {

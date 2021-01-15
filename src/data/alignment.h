@@ -56,12 +56,14 @@ public:
 // Also used on QuickSAND boundary where beam and batch size is 1. Then it is simply [t][s] -> P(s|t)
 typedef std::vector<std::vector<float>> SoftAlignment; // [trg pos][beam depth * max src length * batch size]
 
-WordAlignment ConvertSoftAlignToHardAlign(SoftAlignment alignSoft,
+WordAlignment ConvertSoftAlignToHardAlign(const SoftAlignment& alignSoft,
                                           float threshold = 0.1f,
                                           bool useStrategy = true,
-                                          bool matchLastWithLast = true);
+                                          bool matchLastWithLast = true,
+                                          bool lineSpaceSymbolStart = false,
+                                          bool translationSpaceSymbolStart = false);
 
-std::string SoftAlignToString(SoftAlignment align);
+std::string SoftAlignToString(const SoftAlignment& align);
 
 }  // namespace data
 }  // namespace marian

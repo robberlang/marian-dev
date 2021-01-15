@@ -28,15 +28,18 @@ public:
   void print(Ptr<const History> history, OStream& best1, OStream& bestn) {
     const auto& nbl = history->nBest(nbest_);
     const auto& lineTags = history->getLineTags();
+    bool lineSpaceSymbolStart = history->getLineSpaceSymbolStart();
 
     // prepare n-best list output
     for(size_t i = 0; i < nbl.size(); ++i) {
       const auto& result = nbl[i];
       const auto& hypo = std::get<1>(result);
       auto words = std::get<0>(result);
+      bool translationSpaceSymbolStart = vocab_->sentenceStartsWithSpaceSymbolWord(words);
 
       auto align = getSoftAlignment(hypo);
-      Words wordsWithTags = reinsertTags(words, align, lineTags);
+      Words wordsWithTags
+          = reinsertTags(words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart);
 
       if(reverse_)
         std::reverse(wordsWithTags.begin(), wordsWithTags.end());
@@ -70,10 +73,12 @@ public:
 
     auto result = history->top();
     auto words = std::get<0>(result);
+    bool translationSpaceSymbolStart = vocab_->sentenceStartsWithSpaceSymbolWord(words);
 
     const auto& hypo = std::get<1>(result);
     auto align = getSoftAlignment(hypo);
-    Words wordsWithTags = reinsertTags(words, align, lineTags);
+    Words wordsWithTags
+        = reinsertTags(words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart);
 
     if(reverse_)
       std::reverse(wordsWithTags.begin(), wordsWithTags.end());
@@ -108,7 +113,9 @@ private:
   std::string getWordScores(const Hypothesis::PtrType& hyp);
   Words reinsertTags(const Words& words,
                      const data::SoftAlignment& align,
-                     const std::vector<std::pair<Word, size_t>>& lineTags);
+                     const std::vector<std::pair<Word, size_t>>& lineTags,
+                     bool lineSpaceSymbolStart,
+                     bool translationSpaceSymbolStart);
 
   float getAlignmentThreshold(const std::string& str) {
     try {

@@ -333,6 +333,13 @@ public:
     return decoded;
   }
 
+  bool isWordSpaceSymbol(const Word& word) const {
+    const auto& wordStr = (*this)[word];
+    // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
+    return (wordStr.size() == 3 && wordStr[0] == (char)0xe2 && wordStr[1] == (char)0x96
+            && wordStr[2] == (char)0x81);
+  }
+
   Words encode(const std::string& line, bool addEOS, bool inference) const override {
     InputFormat inputFormat = ConvertInputFormat(options_->get<std::string>("input-format", ""));
     Words words;
@@ -523,13 +530,9 @@ public:
     // desirable in a non-spacing language for both translation and alignment
     for(auto it = words.begin(); it != words.end(); ++it) {
       if(!it->getMarkupTag()) {
-        const auto& curWord = (*this)[*it];
-        // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
-        if(curWord.size() == 3 && curWord[0] == (char)0xe2 && curWord[1] == (char)0x96
-           && curWord[2] == (char)0x81) {
-          words.erase(it);
+        if(isWordSpaceSymbol(*it)) {
+          it->setIsSpaceSymbol(true);
         }
-        break;
       }
     }
 
@@ -852,6 +855,18 @@ public:
       }
     }
     return line;
+  }
+
+  bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const override {
+    for(auto it = sentence.begin(); it != sentence.end(); ++it) {
+      if(!it->getMarkupTag()) {
+        if(isWordSpaceSymbol(*it)) {
+          return true;
+        }
+        break;
+      }
+    }
+    return false;
   }
 
   std::string surfaceForm(const Words& sentence) const override {

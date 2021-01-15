@@ -34,6 +34,7 @@ public:
 
   virtual std::string decode(const Words& sentence,
                              bool ignoreEos = true) const = 0;
+  virtual bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const = 0;
   virtual std::string surfaceForm(const Words& sentence) const = 0;
 
   virtual const std::string& operator[](Word id) const = 0;

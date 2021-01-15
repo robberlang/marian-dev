@@ -70,9 +70,12 @@ public:
     }
 
     std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags;
+    std::vector<bool> sentenceSpaceSymbolStarts;
     std::vector<size_t> words(maxDims.size(), 0);
     for(size_t i = 0; i < batchSize; ++i) {
       sentenceTags.emplace_back();
+      sentenceSpaceSymbolStarts.emplace_back(false);
+      bool firstWordMet = false;
       for(size_t j = 0; j < maxDims.size(); ++j) {
         for(size_t k = 0, l = 0; k < batchVector[i][j].size(); ++k) {
           const auto& markupTag = batchVector[i][j][k].getMarkupTag();
@@ -81,6 +84,12 @@ public:
             subBatches[j]->mask()[l * batchSize + i] = 1.f;
             words[j]++;
             ++l;
+            if(!firstWordMet) {
+              firstWordMet = true;
+              if(batchVector[i][j][k].isSpaceSymbol()) {
+                sentenceSpaceSymbolStarts.back() = true;
+              }
+            }
           } else {
             sentenceTags.back().emplace_back(batchVector[i][j][k], l);
           }
@@ -94,6 +103,7 @@ public:
     auto batch = batch_ptr(new batch_type(subBatches));
     batch->setSentenceIds(sentenceIds);
     batch->setSentenceTags(sentenceTags);
+    batch->setSentenceSpaceSymbolStarts(sentenceSpaceSymbolStarts);
 
     return batch;
   }

@@ -54,6 +54,9 @@ public:
   std::string decode(const Words& sentence,
                      bool ignoreEOS = true) const;
 
+  // determine if the sentence starts with a word that is the sentence symbol (SentencePiece)
+  bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const;
+
   // convert sequence of token its to surface form (incl. removng spaces, applying factors)
   // for in-process BLEU validation
   std::string surfaceForm(const Words& sentence) const;

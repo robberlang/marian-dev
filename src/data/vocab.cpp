@@ -119,6 +119,11 @@ std::string Vocab::decode(const Words& sentence,
   return vImpl_->decode(sentence, ignoreEOS);
 }
 
+// determine if the sentence starts with a word that is the sentence symbol
+bool Vocab::sentenceStartsWithSpaceSymbolWord(const Words& sentence) const {
+  return vImpl_->sentenceStartsWithSpaceSymbolWord(sentence);
+}
+
 // convert sequence of token its to surface form (incl. removng spaces, applying factors)
 // for in-process BLEU validation
 std::string Vocab::surfaceForm(const Words& sentence) const {

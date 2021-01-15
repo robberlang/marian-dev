@@ -60,7 +60,9 @@ std::string OutputPrinter::getWordScores(const Hypothesis::PtrType& hyp) {
 
 Words OutputPrinter::reinsertTags(const Words& words,
                                   const data::SoftAlignment& align,
-                                  const std::vector<std::pair<Word, size_t>>& lineTags) {
+                                  const std::vector<std::pair<Word, size_t>>& lineTags,
+                                  bool lineSpaceSymbolStart,
+                                  bool translationSpaceSymbolStart) {
   if(lineTags.empty())
     return words;
 
@@ -82,7 +84,8 @@ Words OutputPrinter::reinsertTags(const Words& words,
 
   const size_t maxSrcPos = (!align.empty() && !align[0].empty()) ? align[0].size() - 1 : 0;
   // get hard alignments, sorted by source word position, by which lineTags is also sorted
-  const auto hardAlignment = data::ConvertSoftAlignToHardAlign(align);
+  const auto hardAlignment = data::ConvertSoftAlignToHardAlign(
+      align, 0.1f, true, true, lineSpaceSymbolStart, translationSpaceSymbolStart);
   // vector of tags to be reinserted in the translation: tuple consists of the iterator in the
   // source, the target position, and the opening tag target position if applicable of the beginning
   // of whatever nest there may be

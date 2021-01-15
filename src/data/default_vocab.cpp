@@ -67,6 +67,8 @@ public:
     return utils::join(tokens, " ");
   }
 
+  bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const override { return false; }
+
   std::string surfaceForm(const Words& sentence) const override {
     sentence;
     ABORT("surfaceForm() not supported by this vocabulary type");
