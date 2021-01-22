@@ -282,9 +282,9 @@ Words OutputPrinter::reinsertTags(const Words& words,
               for(auto it = std::next(allTgtPoses.begin());; ++it) {
                 if(it == allTgtPoses.end() || it->first > std::prev(it)->first + 1) {
                   size_t curContiguousLength = std::distance(curContiguousStart, it);
-                  if(curContiguousLength > longestContiguousLength
-                     || (curContiguousLength == longestContiguousLength
-                         && curContiguousScore > longestContiguousScore)) {
+                  if(curContiguousScore > longestContiguousScore
+                     || (curContiguousScore == longestContiguousScore
+                         && curContiguousLength > longestContiguousLength)) {
                     longestContiguousLength = curContiguousLength;
                     longestContiguousStart = curContiguousStart;
                     longestContiguousScore = curContiguousScore;
