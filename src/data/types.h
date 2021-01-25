@@ -44,9 +44,12 @@ class MarkupTag {
 public:
   MarkupTag(std::string tag, TagType type, char spacing)
       : tag_(std::move(tag)), type_(type), spacing_(spacing) {}
-  const std::string& getTag() const { return tag_; }
-  const TagType& getType() const { return type_; }
-  char getSpacing() const { return spacing_; }
+  const std::string& tag() const { return tag_; }
+  std::string& tag() { return tag_; }
+  const TagType& type() const { return type_; }
+  TagType& type() { return type_; }
+  char spacing() const { return spacing_; }
+  char& spacing() { return spacing_; }
 };
 
 // Type for all vocabulary items, based on IndexType

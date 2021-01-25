@@ -108,12 +108,12 @@ Words OutputPrinter::reinsertTags(const Words& words,
         maxOverallTgtPos = curWordAlign->tgtPos;
     }
 
-    if(markupTag->getType() != TagType::CLOSE_TAG) {
-      if(lineTag->second == 0 && markupTag->getType() == TagType::EMPTY_TAG) {
+    if(markupTag->type() != TagType::CLOSE_TAG) {
+      if(lineTag->second == 0 && markupTag->type() == TagType::EMPTY_TAG) {
         translationTags.emplace_back(lineTag, translationTags.size(), 0, 1);
       } else if(curWordAlign != hardAlignment.end() /*&& curWordAlign->srcPos == lineTag->second*/) {
-        if(markupTag->getType() == TagType::EMPTY_TAG
-           && (markupTag->getSpacing() & TAGSPACING_BEFORE) == 0
+        if(markupTag->type() == TagType::EMPTY_TAG
+           && (markupTag->spacing() & TAGSPACING_BEFORE) == 0
            && curWordAlign != hardAlignment.begin()) {
           if(translationTags.empty() || translationTags.back().lineTag_->second != lineTag->second) {
             translationTags.emplace_back(
@@ -133,7 +133,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
         translationTags.emplace_back(lineTag, translationTags.size(), words.size(), 1);
       }
 
-      if(markupTag->getType() == TagType::OPEN_TAG)
+      if(markupTag->type() == TagType::OPEN_TAG)
         unbalancedOpenTags.emplace_back(translationTags.size() - 1,
                                         std::distance(hardAlignment.begin(), curWordAlign));
     } else {

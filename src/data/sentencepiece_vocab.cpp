@@ -437,8 +437,16 @@ public:
             words.emplace_back(Word::fromWordIndexAndTag(
                 (std::size_t)-1, line.substr(p, q - p + 1), tagType, tagSpacing));
           } else {
-            words.emplace_back(Word::fromWordIndexAndTag(
-                (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType, tagSpacing));
+            if(!prefix.empty() || words.empty() || !words.back().getMarkupTag()) {
+              words.emplace_back(Word::fromWordIndexAndTag(
+                  (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType, tagSpacing));
+            } else {
+              auto& markupTag = words.back().getMarkupTag();
+              if((tagSpacing & TAGSPACING_AFTER) != 0) {
+                markupTag->spacing() |= TAGSPACING_AFTER;
+              }
+              markupTag->tag() += line.substr(p, q - p + 1);
+            }
           }
         }
 
@@ -464,9 +472,9 @@ public:
             for(size_t k = 0; k < words.size(); ++k) {
               const auto& markupTag = words[k].getMarkupTag();
               if(markupTag) {
-                if(markupTag->getType() == TagType::OPEN_TAG) {
+                if(markupTag->type() == TagType::OPEN_TAG) {
                   unbalancedTags.push(k);
-                } else if(markupTag->getType() == TagType::CLOSE_TAG) {
+                } else if(markupTag->type() == TagType::CLOSE_TAG) {
                   if(k < lastWordInd && unbalancedTags.top() < startWordInd) {
                     startWordInd = unbalancedTags.top();
                   } else if(k > lastWordInd && unbalancedTags.top() > startWordInd) {
@@ -492,9 +500,9 @@ public:
             const auto& markupTag = words[k].getMarkupTag();
             if(markupTag) {
               Word newWordTag = Word::fromWordIndexAndTag(entitizedTagId,
-                                                          markupTag->getTag(),
-                                                          markupTag->getType(),
-                                                          markupTag->getSpacing());
+                                                          markupTag->tag(),
+                                                          markupTag->type(),
+                                                          markupTag->spacing());
               std::ostringstream oss;
               oss << "__ent_" << std::setfill('0') << std::setw(5) << entitizedTagId++ << "_";
               sentencepiece::normalizer::AddDummyPrefix adp
@@ -546,7 +554,7 @@ public:
     std::string line;
     if(keepEncoded_) {  // i.e. keep the sentence segmented into subword units
       for(const Word& id : sentence)
-        line += (!id.getMarkupTag() ? (*this)[id] : id.getMarkupTag()->getTag()) + " ";
+        line += (!id.getMarkupTag() ? (*this)[id] : id.getMarkupTag()->tag()) + " ";
       line.pop_back();  // trim the trailing whitespace
     } else {
       // convert vector of Word to vector of int
@@ -598,17 +606,17 @@ public:
             ++i;
           } else if(wordIndex == (WordIndex)-1) {
             // collect all adjacent tags; find next real word
-            TagType tt = word.getMarkupTag()->getType();
+            TagType tt = word.getMarkupTag()->type();
             size_t j = i + 1;
             for(; j < sentence.size() && sentence[j].getMarkupTag()
                   && sentence[j].toWordIndex() == (WordIndex)-1;
                 ++j) {
               // need to track whether the tags are all of the same type: open or close, empty tags
               // being neutral
-              if(sentence[j].getMarkupTag()->getType() != TagType::EMPTY_TAG) {
+              if(sentence[j].getMarkupTag()->type() != TagType::EMPTY_TAG) {
                 if(tt == TagType::EMPTY_TAG) {
-                  tt = sentence[j].getMarkupTag()->getType();
-                } else if(sentence[j].getMarkupTag()->getType() != tt) {
+                  tt = sentence[j].getMarkupTag()->type();
+                } else if(sentence[j].getMarkupTag()->type() != tt) {
                   tt = TagType::NONE;
                 }
               }
@@ -665,8 +673,8 @@ public:
                   if(spaceNeededBeforeOpenTag) {
                     for(size_t m = i; m < j; ++m) {
                       const auto& markupTag = sentence[m].getMarkupTag();
-                      if((markupTag->getSpacing() & TAGSPACING_BEFORE) != 0
-                         || (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                      if((markupTag->spacing() & TAGSPACING_BEFORE) != 0
+                         || (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                         spaceNeededBeforeOpenTag = false;
                         break;
                       }
@@ -677,16 +685,16 @@ public:
                   for(size_t m = i; m < j; ++m) {
                     const auto& markupTag = sentence[m].getMarkupTag();
                     if(!line.empty() && line.back() != ' ') {
-                      if(spaceNeededBeforeOpenTag && markupTag->getType() != TagType::CLOSE_TAG) {
+                      if(spaceNeededBeforeOpenTag && markupTag->type() != TagType::CLOSE_TAG) {
                         line += ' ';
                         spaceNeededBeforeOpenTag = false;
-                      } else if(spaceRequired && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
+                      } else if(spaceRequired && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
                         line += ' ';
                       }
                     }
-                    line += markupTag->getTag();
+                    line += markupTag->tag();
                     if((spaceRequired || emptyLine)
-                       && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                       && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                       line += ' ';
                     }
                   }
@@ -703,7 +711,7 @@ public:
                       ++k) {
                     if(sentence[k].getMarkupTag()) {
                       if(sentence[k].toWordIndex() == (WordIndex)-1
-                         && sentence[k].getMarkupTag()->getType() != TagType::CLOSE_TAG) {
+                         && sentence[k].getMarkupTag()->type() != TagType::CLOSE_TAG) {
                         // the next real word must require a leading space or eos or punct
                         size_t l = k + 1;
                         for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
@@ -759,13 +767,13 @@ public:
                     const auto& markupTag = sentence[m].getMarkupTag();
                     if(markupTag && sentence[m].toWordIndex() == (WordIndex)-1) {
                       if(spaceRequired && !line.empty() && line.back() != ' '
-                         && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
+                         && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
                         line += ' ';
                         spaceAdded = true;
                       }
 
-                      line += markupTag->getTag();
-                      if(spaceRequired && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                      line += markupTag->tag();
+                      if(spaceRequired && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                         line += ' ';
                         spaceAdded = true;
                       }
@@ -793,8 +801,8 @@ public:
               if(spaceNeededBeforeOpenTag) {
                 for(size_t k = i; k < j; ++k) {
                   const auto& markupTag = sentence[k].getMarkupTag();
-                  if((markupTag->getSpacing() & TAGSPACING_BEFORE) != 0
-                     || (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                  if((markupTag->spacing() & TAGSPACING_BEFORE) != 0
+                     || (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                     spaceNeededBeforeOpenTag = false;
                     break;
                   }
@@ -805,19 +813,19 @@ public:
                 const auto& markupTag = sentence[k].getMarkupTag();
                 if(!line.empty() && line.back() != ' ') {
                   if(spaceNeededBeforeOpenTag
-                     && markupTag->getType() != TagType::CLOSE_TAG) {
+                     && markupTag->type() != TagType::CLOSE_TAG) {
                     line += ' ';
                     spaceNeededBeforeOpenTag = false;
                     spaceAdded = true;
                   } else if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size())
-                            && (markupTag->getSpacing() & TAGSPACING_BEFORE) != 0) {
+                            && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
                     line += ' ';
                     spaceAdded = true;
                   }
                 }
-                line += markupTag->getTag();
+                line += markupTag->tag();
                 if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size() || emptyLine)
-                   && (markupTag->getSpacing() & TAGSPACING_AFTER) != 0) {
+                   && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                   line += ' ';
                   spaceAdded = true;
                 }
@@ -848,9 +856,9 @@ public:
             size_t p = line.find(entity);
             if(p != std::string::npos) {
               line.replace(
-                  p, entity.length(), sentence[i].getMarkupTag()->getTag());
+                  p, entity.length(), sentence[i].getMarkupTag()->tag());
             } else {
-              line += sentence[i].getMarkupTag()->getTag();
+              line += sentence[i].getMarkupTag()->tag();
             }
           }
 
