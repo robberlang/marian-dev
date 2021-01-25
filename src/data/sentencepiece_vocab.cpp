@@ -564,6 +564,8 @@ public:
         std::vector<size_t> entitizedTagIndexes;
         std::vector<bool> spacePrefix;
         spacePrefix.reserve(sentence.size());
+        bool sentenceHasSpaces = false;
+        bool firstWordMet = false;
         for(size_t i = 0; i < sentence.size(); ++i) {
           const auto& word = sentence[i];
           if(!word.getMarkupTag()) {
@@ -574,6 +576,11 @@ public:
                && curWord[2] == (char)0x81) {
               spaceRequiredBeforeWord = true;
             }
+            if(!firstWordMet) {
+              firstWordMet = true;
+            } else if(spaceRequiredBeforeWord) {
+              sentenceHasSpaces = true;
+            }
             spacePrefix.push_back(spaceRequiredBeforeWord);
           } else {
             if(word.toWordIndex() != (WordIndex)-1) {
@@ -583,8 +590,6 @@ public:
           }
         }
 
-        bool sentenceHasSpaces
-            = (std::find(spacePrefix.begin(), spacePrefix.end(), true) != spacePrefix.end());
         for(size_t i = 0; i < sentence.size();) {
           const auto& word = sentence[i];
           WordIndex wordIndex = word.toWordIndex();
