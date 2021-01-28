@@ -21,6 +21,7 @@
 #include <tuple>
 #include <functional>
 #include <cctype>
+#include <cassert>
 
 namespace marian {
 
@@ -410,10 +411,22 @@ public:
             }
             prefix = decodeEntities(prefix, inputFormat);
             spm_->Encode(prefix, &spmIds, addDummyPrefix);
-            for(auto&& spmId : spmIds)
-              words.emplace_back(Word::fromWordIndex(spmId));
+            if(!spmIds.empty()) {
+              Word firstWord(Word::fromWordIndex(spmIds.front()));
+              if(prefix.front() == ' '
+                 || addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON || words.empty()
+                 || !isWordSpaceSymbol(firstWord)) {
+                words.emplace_back(firstWord);
+              } else {
+                // put the space before the tag
+                words.emplace(words.end() - 1, firstWord);
+              }
+              for(auto spmIt = spmIds.begin() + 1; spmIt != spmIds.end(); ++spmIt) {
+                words.emplace_back(Word::fromWordIndex(*spmIt));
+              }
 
-            spmIds.clear();
+              spmIds.clear();
+            }
             addDummyPrefix = (prefix.back() != ' ')
                                  ? sentencepiece::normalizer::AddDummyPrefix::OFF
                                  : sentencepiece::normalizer::AddDummyPrefix::ON;
@@ -509,6 +522,7 @@ public:
                   = (sentencepiece::normalizer::AddDummyPrefix)words[k].toWordIndex();
               spm_->Encode(oss.str(), &spmIds, adp);
               if(spmIds.empty()) {
+                assert(false);
                 words.erase(words.begin() + k--);
                 --lastWordInd;
               } else {
@@ -639,9 +653,14 @@ public:
                   size_t previousWordsEndIdx = spmSentence.size();
                   for(size_t k = 0; k < spmSentence.size(); ++k) {
                     std::string wrd = (*this)[sentence[i - k - 1]];
+                    //** todo replace isalnum hack
+                    if(!wrd.empty() && !std::isalnum(static_cast<unsigned char>(wrd.back()))) {
+                      previousWordsEndIdx = spmSentence.size() - k;
+                      break;
+                    }
                     std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
                     if(((wrdU.length() == 1 && k == i - 1)
-                        || (spacePrefix[i - k - 1] && wrdU.length() == 4))
+                        || (spacePrefix[i - k - 1] && wrdU.length() == 2))
                        && unicodecharprops::isUCharPunct(wrd.back())) {
                       // tag comes after the punctuation
                       previousWordsEndIdx = spmSentence.size() - k;
@@ -718,10 +737,14 @@ public:
                         }
 
                         // no change to the position of the tag to place
+                        std::string wrd = (*this)[sentence[l]];
+                        //** todo replace isalnum hack
+                        if(!wrd.empty() && !std::isalnum(static_cast<unsigned char>(wrd.front()))) {
+                          break;
+                        }
                         if(l < spacePrefix.size() && !spacePrefix[l] && sentence[l] != getEosId()) {
                           if((l + 1 >= spacePrefix.size() || spacePrefix[l + 1]
                               || sentence[l + 1] == getEosId())) {
-                            std::string wrd = (*this)[sentence[l]];
                             std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
                             if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
                               // put the tag before the closing punctuation
@@ -733,11 +756,15 @@ public:
                         break;
                       }
                     } else {
+                      std::string wrd = (*this)[sentence[k]];
+                      //** todo replace isalnum hack
+                      if(!wrd.empty() && !std::isalnum(static_cast<unsigned char>(wrd.front()))) {
+                        break;
+                      }
                       size_t l = k + 1;
                       for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
                       }
                       if((l >= spacePrefix.size() || spacePrefix[l] || sentence[l] == getEosId())) {
-                        std::string wrd = (*this)[sentence[k]];
                         std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
                         if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
                           // put the tag before the closing punctuation
