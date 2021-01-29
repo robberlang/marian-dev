@@ -68,9 +68,13 @@ private:
 };
 
 static const UnicodeChar32Set g_PunctuationSet(listPunctuation, lenListPunctuation);
+static const UnicodeChar32Set g_NonSpacingSet(listNonSpacing, lenListNonSpacing);
 
 bool isUCharPunct(char32_t ch) {
   return g_PunctuationSet.contains(ch);
+}
+bool isUCharNonSpacing(char32_t ch) {
+  return g_NonSpacingSet.contains(ch);
 }
 }  // namespace unicodecharprops
 }  // namespace marian

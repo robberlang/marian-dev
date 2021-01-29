@@ -653,16 +653,13 @@ public:
                   size_t previousWordsEndIdx = spmSentence.size();
                   for(size_t k = 0; k < spmSentence.size(); ++k) {
                     std::string wrd = (*this)[sentence[i - k - 1]];
-                    //** todo replace isalnum hack
-                    if(!wrd.empty() && !std::isalnum(static_cast<unsigned char>(wrd.back()))) {
-                      previousWordsEndIdx = spmSentence.size() - k;
-                      break;
-                    }
                     std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
-                    if(((wrdU.length() == 1 && k == i - 1)
-                        || (spacePrefix[i - k - 1] && wrdU.length() == 2))
-                       && unicodecharprops::isUCharPunct(wrd.back())) {
-                      // tag comes after the punctuation
+                    if(!wrdU.empty()
+                       && (unicodecharprops::isUCharNonSpacing(wrdU.back())
+                           || (((wrdU.length() == 1 && k == i - 1)
+                                || (spacePrefix[i - k - 1] && wrdU.length() == 2))
+                               && unicodecharprops::isUCharPunct(wrdU.back())))) {
+                      // tag comes after this word
                       previousWordsEndIdx = spmSentence.size() - k;
                       break;
                     }
@@ -738,18 +735,16 @@ public:
 
                         // no change to the position of the tag to place
                         std::string wrd = (*this)[sentence[l]];
-                        //** todo replace isalnum hack
-                        if(!wrd.empty() && !std::isalnum(static_cast<unsigned char>(wrd.front()))) {
+                        std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+                        if(!wrdU.empty() && unicodecharprops::isUCharNonSpacing(wrdU.front())) {
                           break;
                         }
                         if(l < spacePrefix.size() && !spacePrefix[l] && sentence[l] != getEosId()) {
                           if((l + 1 >= spacePrefix.size() || spacePrefix[l + 1]
-                              || sentence[l + 1] == getEosId())) {
-                            std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
-                            if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
-                              // put the tag before the closing punctuation
-                              break;
-                            }
+                              || sentence[l + 1] == getEosId())
+                             && wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
+                            // put the tag before the closing punctuation
+                            break;
                           }
                           k = j;
                         }
@@ -757,19 +752,17 @@ public:
                       }
                     } else {
                       std::string wrd = (*this)[sentence[k]];
-                      //** todo replace isalnum hack
-                      if(!wrd.empty() && !std::isalnum(static_cast<unsigned char>(wrd.front()))) {
+                      std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+                      if(!wrdU.empty() && unicodecharprops::isUCharNonSpacing(wrdU.front())) {
                         break;
                       }
                       size_t l = k + 1;
                       for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
                       }
-                      if((l >= spacePrefix.size() || spacePrefix[l] || sentence[l] == getEosId())) {
-                        std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
-                        if(wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
-                          // put the tag before the closing punctuation
-                          break;
-                        }
+                      if((l >= spacePrefix.size() || spacePrefix[l] || sentence[l] == getEosId())
+                         && wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
+                        // put the tag before the closing punctuation
+                        break;
                       }
                     }
                   }
