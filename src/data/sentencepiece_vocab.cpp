@@ -521,19 +521,16 @@ public:
               sentencepiece::normalizer::AddDummyPrefix adp
                   = (sentencepiece::normalizer::AddDummyPrefix)words[k].toWordIndex();
               spm_->Encode(oss.str(), &spmIds, adp);
+              words[k] = std::move(newWordTag);
               if(spmIds.empty()) {
                 assert(false);
-                words.erase(words.begin() + k--);
-                --lastWordInd;
               } else {
-                words[k] = Word::fromWordIndex(spmIds[0]);
-                for(auto s = spmIds.begin() + 1; s != spmIds.end(); ++s) {
+                for(auto s = spmIds.begin(); s != spmIds.end(); ++s) {
                   words.emplace(words.begin() + ++k, Word::fromWordIndex(*s));
                   ++lastWordInd;
                 }
               }
               spmIds.clear();
-              words.emplace_back(std::move(newWordTag));
             }
           }
         }
