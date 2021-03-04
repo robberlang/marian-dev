@@ -537,7 +537,9 @@ public:
       for(int batchIdx = 0; batchIdx < origDimBatch; ++batchIdx) {
         // if this batch entry has surviving hyps then add them to the traceback grid
         if(!beams[batchIdx].empty()) { // if the beam is not empty expand the history object associated with the beam
-          if (histories[batchIdx]->size() >= options_->get<float>("max-length-factor") * batch->front()->batchWidth())
+          if(histories[batchIdx]->size()
+                 >= options_->get<float>("max-length-factor") * batch->front()->batchWidth()
+             || histories[batchIdx]->size() >= options_->get<size_t>("max-trg-length"))
             maxLengthReached = true;
           histories[batchIdx]->add(beams[batchIdx], trgEosId, purgedNewBeams[batchIdx].empty() || maxLengthReached);
         }

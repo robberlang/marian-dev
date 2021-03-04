@@ -545,6 +545,9 @@ void ConfigParser::addOptionsValidation(cli::CLIWrapper& cli) {
   cli.add<float>("--max-length-factor",
       "Maximum target length as source length times factor",
       3);
+  cli.add<size_t>("--max-trg-length",
+      "Maximum target length",
+      250);
   cli.add<float>("--word-penalty",
       "Subtract (arg * translation length) from translation score ");
   cli.add<bool>("--allow-unk",
@@ -607,6 +610,9 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
   cli.add<float>("--max-length-factor",
       "Maximum target length as source length times factor",
       3);
+  cli.add<size_t>("--max-trg-length",
+      "Maximum target length",
+      250);
   cli.add<float>("--word-penalty",
       "Subtract (arg * translation length) from translation score");
   cli.add<bool>("--allow-unk",
