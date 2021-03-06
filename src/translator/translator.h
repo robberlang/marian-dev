@@ -200,7 +200,7 @@ public:
   virtual ~TranslateService() {}
 
   TranslateService(const TranslateService& other)
-      : options_(other.options_),
+      : options_(New<Options>(other.options_->clone())),
         srcVocabs_(other.srcVocabs_),
         trgVocab_(other.trgVocab_),
         shortlistGenerator_(other.shortlistGenerator_)
