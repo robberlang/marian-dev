@@ -43,7 +43,7 @@ public:
   Word operator[](const std::string& word) const;
 
   // token index to string token
-  const std::string& operator[](Word word) const;
+  const std::string& operator[](const Word& word) const;
 
   // line of text to list of token ids, can perform tokenization
   Words encode(const std::string& line,

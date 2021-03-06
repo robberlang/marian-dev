@@ -32,7 +32,7 @@ public:
   virtual std::string decode(const Words& sentence, bool ignoreEos = true) const override final;
   virtual bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const override final;
   virtual std::string surfaceForm(const Words& sentence) const override final;
-  virtual const std::string& operator[](Word id) const override final;
+  virtual const std::string& operator[](const Word& id) const override final;
   virtual size_t size() const override final { return vocab_.size(); } // active factored vocabulary size (counting all valid combinations but not gaps)
   virtual std::string type() const override final { return "FactoredVocab"; }
   virtual Word getEosId() const override final { return eosId_; }
@@ -61,11 +61,11 @@ public:
 
   // convert representations
   Word factors2word(const std::vector<size_t>& factors) const;
-  void word2factors(Word word, std::vector<size_t>& factors) const;
+  void word2factors(const Word& word, std::vector<size_t>& factors) const;
   Word lemma2Word(size_t factor0Index) const;
-  Word expandFactoredWord(Word word, size_t groupIndex, size_t factorIndex) const;
-  bool canExpandFactoredWord(Word word, size_t groupIndex) const { return lemmaHasFactorGroup(getFactor(word, 0), groupIndex); }
-  size_t getFactor(Word word, size_t groupIndex) const;
+  Word expandFactoredWord(const Word& word, size_t groupIndex, size_t factorIndex) const;
+  bool canExpandFactoredWord(const Word& word, size_t groupIndex) const { return lemmaHasFactorGroup(getFactor(word, 0), groupIndex); }
+  size_t getFactor(const Word& word, size_t groupIndex) const;
   bool lemmaHasFactorGroup(size_t factor0Index, size_t g) const { return lemmaHasFactorGroup_[factor0Index][g]; }
   const std::string& getFactorGroupPrefix(size_t groupIndex) const { return groupPrefixes_[groupIndex]; } // for diagnostics only
   const std::string& getFactorName(size_t groupIndex, size_t factorIndex) const { return factorVocab_[(WordIndex)(factorIndex + groupRanges_[groupIndex].first)]; }
@@ -76,7 +76,7 @@ public:
   static bool isFactorValid(size_t factorIndex) { return factorIndex < FACTOR_NOT_SPECIFIED; }
 
   static Ptr<FactoredVocab> tryCreateAndLoad(const std::string& path); // load from "vocab" option if it specifies a factored vocab
-  std::string word2string(Word word) const;
+  std::string word2string(const Word& word) const;
   Word string2word(const std::string& w) const;
   bool tryGetFactor(const std::string& factorGroupName, size_t& groupIndex, size_t& factorIndex) const; // note: factorGroupName given without separator
 

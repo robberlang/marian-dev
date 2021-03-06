@@ -343,7 +343,7 @@ Word FactoredVocab::lemma2Word(size_t factor0Index) const {
 
 // replace a factor that is FACTOR_NOT_SPECIFIED by a specified one
 // This is used in beam search, where factors are searched one after another.
-Word FactoredVocab::expandFactoredWord(Word word, size_t groupIndex, size_t factorIndex) const {
+Word FactoredVocab::expandFactoredWord(const Word& word, size_t groupIndex, size_t factorIndex) const {
   //LOG(info, "expand {} + [{}]={}", word2string(word), groupIndex, factorIndex);
   ABORT_IF(groupIndex == 0, "Cannot add or change lemma in a partial Word");
   ABORT_IF(!isFactorValid(factorIndex), "Cannot add unspecified or n/a factor to a partial Word");
@@ -354,9 +354,9 @@ Word FactoredVocab::expandFactoredWord(Word word, size_t groupIndex, size_t fact
   ABORT_IF(factorIndices[groupIndex] == FACTOR_NOT_APPLICABLE, "Cannot add a factor that the lemma does not have");
   ABORT_IF(factorIndices[groupIndex] != FACTOR_NOT_SPECIFIED, "Cannot modify a specified factor in a partial Word");
   factorIndices[groupIndex] = factorIndex;
-  word = factors2word(factorIndices);
-  //LOG(info, "to {}", word2string(word));
-  return word;
+  Word new_word = factors2word(factorIndices);
+  //LOG(info, "to {}", word2string(new_word));
+  return new_word;
 }
 
 // factor unit: index of factor name in the joint factor vocabulary
@@ -369,7 +369,7 @@ size_t FactoredVocab::factorUnit2FactorIndex(WordIndex u) const {
 
 // split the 'Word' representation, which is really a single big integer, into the individual
 // factor indices for all factor types
-void FactoredVocab::word2factors(Word word, std::vector<size_t>& factorIndices /* [numGroups] */) const {
+void FactoredVocab::word2factors(const Word& word, std::vector<size_t>& factorIndices /* [numGroups] */) const {
   size_t numGroups = getNumGroups();
   factorIndices.resize(numGroups);
   for (size_t g = 0; g < numGroups; g++) {
@@ -384,7 +384,7 @@ void FactoredVocab::word2factors(Word word, std::vector<size_t>& factorIndices /
 }
 
 // serialize 'Word' representation into its string form
-std::string FactoredVocab::word2string(Word word) const {
+std::string FactoredVocab::word2string(const Word& word) const {
   // this function has some code dup, so that we can bypass some checks for debugging
   size_t numGroups = getNumGroups();
   size_t factor0Index = word.toWordIndex() / factorStrides_[0];
@@ -447,7 +447,7 @@ bool FactoredVocab::tryGetFactor(const std::string& factorName, size_t& groupInd
 }
 
 // extract the factor index of a given factor type from the 'Word' representation
-size_t FactoredVocab::getFactor(Word word, size_t groupIndex) const {
+size_t FactoredVocab::getFactor(const Word& word, size_t groupIndex) const {
   size_t index = word.toWordIndex();
   size_t factor0Index = index / factorStrides_[0];
   index = index / factorStrides_[groupIndex];
@@ -521,7 +521,7 @@ void FactoredVocab::constructNormalizationInfoForVocab() {
     return string2word(word);
 }
 
-/*virtual*/ const std::string& FactoredVocab::operator[](Word word) const /*override final*/ {
+/*virtual*/ const std::string& FactoredVocab::operator[](const Word& word) const /*override final*/ {
   //LOG(info, "Looking up Word {}={}", word.toWordIndex(), word2string(word));
   ABORT_IF(!vocab_.contains(word.toWordIndex()), "Invalid factor combination {}", word2string(word));
   return vocab_[word.toWordIndex()];

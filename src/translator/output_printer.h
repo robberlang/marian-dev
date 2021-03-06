@@ -22,7 +22,8 @@ public:
         alignment_(options->get<std::string>("alignment", "")),
         alignmentThreshold_(getAlignmentThreshold(alignment_)),
         wordScores_(options->get<bool>("word-scores")),
-        entitizeTags_(options->get<bool>("entitize-tags")) {}
+        entitizeTags_(options->get<bool>("entitize-tags")),
+        wordCounts_(options->get<bool>("word-counts")) {}
 
   template <class OStream>
   void print(Ptr<const History> history, OStream& best1, OStream& bestn) {
@@ -46,6 +47,9 @@ public:
 
       std::string translation = vocab_->decode(wordsWithTags);
       bestn << history->getLineNum() << " ||| " << translation;
+
+      if(wordCounts_)
+        bestn << " ||| WordCounts=" << history->getNumSrcWords() << ',' << words.size();
 
       if(!alignment_.empty())
         bestn << " ||| " << getAlignment(align);
@@ -86,6 +90,9 @@ public:
     std::string translation = vocab_->decode(wordsWithTags);
 
     best1 << translation;
+    if(wordCounts_)
+      best1 << " ||| WordCounts=" << history->getNumSrcWords() << ',' << words.size();
+
     if(!alignment_.empty()) {
       best1 << " ||| " << getAlignment(align);
     }
@@ -105,6 +112,7 @@ private:
   float alignmentThreshold_{0.f};  // Threshold for converting attention into hard word alignment
   bool wordScores_{false};         // Whether to print word-level scores or not
   bool entitizeTags_{false};
+  bool wordCounts_{false};
 
   data::SoftAlignment getSoftAlignment(const Hypothesis::PtrType& hyp);
   // Get word alignment pairs or soft alignment

@@ -79,7 +79,7 @@ public:
   virtual Word getEosId() const override { return eosId_; }
   virtual Word getUnkId() const override { return unkId_; }
 
-  const std::string& operator[](Word word) const override {
+  const std::string& operator[](const Word& word) const override {
     auto id = word.toWordIndex();
     ABORT_IF(id >= id2str_.size(), "Unknown word id: {}", id);
     return id2str_[id];
@@ -140,8 +140,10 @@ public:
 
   // for fakeBatch()
   virtual void createFake() override {
-    eosId_ = insertWord(Word::DEFAULT_EOS_ID, DEFAULT_EOS_STR);
-    unkId_ = insertWord(Word::DEFAULT_UNK_ID, DEFAULT_UNK_STR);
+    eosId_ = Word::DEFAULT_EOS_ID;
+    insertWord(eosId_, DEFAULT_EOS_STR);
+    unkId_ = Word::DEFAULT_UNK_ID;
+    insertWord(unkId_, DEFAULT_UNK_STR);
   }
 
   virtual void create(const std::string& vocabPath,
@@ -283,13 +285,12 @@ private:
   }
 
   // helper to insert a word into str2id_[] and id2str_[]
-  Word insertWord(Word word, const std::string& str) {
+  void insertWord(const Word& word, const std::string& str) {
     str2id_[str] = word;
     auto id = word.toWordIndex();
     if(id >= id2str_.size())
       id2str_.resize(id + 1);
     id2str_[id] = str;
-    return word;
   };
 };
 

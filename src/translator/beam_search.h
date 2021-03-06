@@ -252,24 +252,30 @@ public:
   }
 
   // remove all beam entries that have reached EOS
-  Beams purgeBeams(const Beams& beams, /*in/out=*/std::vector<IndexType>& batchIdxMap) {
+  Beams purgeBeams(const Beams& beams, const Histories& histories, /*in/out=*/std::vector<IndexType>& batchIdxMap) {
+    ABORT_IF(histories.size() != beams.size(), "Lost a batch entry??");
     const auto trgEosId = trgVocab_->getEosId();
     Beams newBeams;
-    size_t beamIdx = 0; // beam index
-    for(auto beam : beams) {
+    for(size_t beamIdx = 0; beamIdx < beams.size(); ++beamIdx) {
+      const auto& beam = beams[beamIdx];
       Beam newBeam; // a beam of surviving hyps
-      for(auto hyp : beam)
-        if(hyp->getWord() != trgEosId) // if this hyp is not finished,
-          newBeam.push_back(hyp);      // move over to beam of surviving hyps
-
-      if(PURGE_BATCH)
-        if(newBeam.empty() && !beam.empty()) {      // previous beam had hyps, but all were finished in this step, newBeam will now stay empty
-          for(size_t i = beamIdx + 1; i < beams.size(); ++i) // for all entries above this beam
-            batchIdxMap[i] = batchIdxMap[i] - 1;  // make them look at one batch index below, as the current entry will be removed from the batch.
+      if(!beam.empty()
+         && histories[beamIdx]->size()
+                < options_->get<float>("max-length-factor") * histories[beamIdx]->getNumSrcWords()
+         && histories[beamIdx]->size() < options_->get<size_t>("max-trg-length")) {
+        for(const auto& hyp : beam)
+          if(hyp->getWord() != trgEosId)  // if this hyp is not finished,
+            newBeam.push_back(hyp);       // move over to beam of surviving hyps
       }
-
-      newBeams.push_back(newBeam);
-      beamIdx++; // move to next beam index
+      if(PURGE_BATCH) {
+        if(newBeam.empty() && !beam.empty()) {  // previous beam had hyps, but all were finished in
+                                                // this step, newBeam will now stay empty
+          for(size_t i = beamIdx + 1; i < beams.size(); ++i)  // for all entries above this beam
+            batchIdxMap[i] = batchIdxMap[i] - 1;  // make them look at one batch index below, as the
+                                                  // current entry will be removed from the batch.
+        }
+      }
+      newBeams.push_back(std::move(newBeam));
     }
     return newBeams;
   }
@@ -300,9 +306,11 @@ public:
     Histories histories(origDimBatch);
     for(int i = 0; i < origDimBatch; ++i) {
       size_t sentId = batch->getSentenceIds()[i];
+      size_t wordCount = batch->getSentenceWordCounts()[i];
       const auto& sentTags = batch->getSentenceTags()[i];
       bool sentSpaceSymbolStart = batch->getSentenceSpaceSymbolStarts()[i];
       histories[i] = New<History>(sentId,
+                                  wordCount,
                                   sentTags,
                                   sentSpaceSymbolStart,
                                   options_->get<float>("normalize"),
@@ -530,22 +538,17 @@ public:
       // remove all hyps that end in EOS
       // The position of a hyp in the beam may change.
       // in/out = shifts the batch index map if a beam gets fully purged
-      const auto purgedNewBeams = purgeBeams(beams, /*in/out=*/batchIdxMap);
+      const auto purgedNewBeams = purgeBeams(beams, histories, /*in/out=*/batchIdxMap);
 
       // add updated search space (beams) to our return value
-      bool maxLengthReached = false;
       for(int batchIdx = 0; batchIdx < origDimBatch; ++batchIdx) {
         // if this batch entry has surviving hyps then add them to the traceback grid
-        if(!beams[batchIdx].empty()) { // if the beam is not empty expand the history object associated with the beam
-          if(histories[batchIdx]->size()
-                 >= options_->get<float>("max-length-factor") * batch->front()->batchWidth()
-             || histories[batchIdx]->size() >= options_->get<size_t>("max-trg-length"))
-            maxLengthReached = true;
-          histories[batchIdx]->add(beams[batchIdx], trgEosId, purgedNewBeams[batchIdx].empty() || maxLengthReached);
+        if(!beams[batchIdx].empty()) {  // if the beam is not empty expand the history object
+                                        // associated with the beam
+          histories[batchIdx]->add(
+              beams[batchIdx], trgEosId, purgedNewBeams[batchIdx].empty());
         }
       }
-      if (maxLengthReached) // early exit if max length limit was reached
-        break;
 
       // this is the search space for the next output time step
       beams = purgedNewBeams;

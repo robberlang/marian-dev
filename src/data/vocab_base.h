@@ -37,7 +37,7 @@ public:
   virtual bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const = 0;
   virtual std::string surfaceForm(const Words& sentence) const = 0;
 
-  virtual const std::string& operator[](Word id) const = 0;
+  virtual const std::string& operator[](const Word& id) const = 0;
 
   virtual size_t size() const = 0;
   virtual std::string type() const = 0;

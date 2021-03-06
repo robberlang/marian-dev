@@ -89,10 +89,12 @@ public:
       subBatches.emplace_back(New<SubBatch>(batchSize, maxDims[j], vocabs_[j]));
     }
 
+    std::vector<size_t> sentenceWordCounts;
     std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags;
     std::vector<bool> sentenceSpaceSymbolStarts;
     std::vector<size_t> words(maxDims.size(), 0);
     for(size_t i = 0; i < batchSize; ++i) {
+      sentenceWordCounts.emplace_back(0);
       sentenceTags.emplace_back();
       sentenceSpaceSymbolStarts.emplace_back(false);
       bool firstWordMet = false;
@@ -103,6 +105,7 @@ public:
             subBatches[j]->data()[l * batchSize + i] = batchVector[i][j][k];
             subBatches[j]->mask()[l * batchSize + i] = 1.f;
             words[j]++;
+            ++sentenceWordCounts.back();
             ++l;
             if(!firstWordMet) {
               firstWordMet = true;
@@ -122,6 +125,7 @@ public:
 
     auto batch = batch_ptr(new batch_type(subBatches));
     batch->setSentenceIds(sentenceIds);
+    batch->setSentenceWordCounts(sentenceWordCounts);
     batch->setSentenceTags(sentenceTags);
     batch->setSentenceSpaceSymbolStarts(sentenceSpaceSymbolStarts);
 

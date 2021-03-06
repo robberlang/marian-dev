@@ -102,7 +102,7 @@ Word Vocab::operator[](const std::string& word) const {
 }
 
 // token id to string token
-const std::string& Vocab::operator[](Word id) const {
+const std::string& Vocab::operator[](const Word& id) const {
   return vImpl_->operator[](id);
 }
 

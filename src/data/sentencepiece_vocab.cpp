@@ -210,7 +210,7 @@ public:
     return Word::fromWordIndex(spm_->PieceToId(token));
   }
 
-  const std::string& operator[](Word id) const override {
+  const std::string& operator[](const Word& id) const override {
     ABORT_IF(id.toWordIndex() >= size(), "Unknown word id: ", id.toWordIndex());
     return spm_->IdToPiece(id.toWordIndex());
   }
@@ -602,9 +602,6 @@ public:
             }
             spacePrefix.push_back(spaceRequiredBeforeWord);
           } else {
-            if(word.toWordIndex() != (WordIndex)-1) {
-              break;
-            }
             spacePrefix.push_back(false);
           }
         }
@@ -649,7 +646,7 @@ public:
                 if(tt != TagType::CLOSE_TAG) {
                   size_t previousWordsEndIdx = spmSentence.size();
                   for(size_t k = 0; k < spmSentence.size(); ++k) {
-                    std::string wrd = (*this)[sentence[i - k - 1]];
+                    const std::string& wrd = (*this)[sentence[i - k - 1]];
                     std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
                     if(!wrdU.empty()
                        && (unicodecharprops::isUCharNonSpacing(wrdU.back())
@@ -730,25 +727,25 @@ public:
                         for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
                         }
 
-                        // no change to the position of the tag to place
-                        std::string wrd = (*this)[sentence[l]];
-                        std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
-                        if(!wrdU.empty() && unicodecharprops::isUCharNonSpacing(wrdU.front())) {
-                          break;
-                        }
                         if(l < spacePrefix.size() && !spacePrefix[l] && sentence[l] != getEosId()) {
+                          const std::string& wrd = (*this)[sentence[l]];
+                          std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+                          if(!wrdU.empty() && unicodecharprops::isUCharNonSpacing(wrdU.front())) {
+                            break;
+                          }
                           if((l + 1 >= spacePrefix.size() || spacePrefix[l + 1]
                               || sentence[l + 1] == getEosId())
                              && wrdU.length() == 1 && unicodecharprops::isUCharPunct(wrdU.back())) {
                             // put the tag before the closing punctuation
                             break;
                           }
+                          // no change to the position of the tag to place
                           k = j;
                         }
                         break;
                       }
                     } else {
-                      std::string wrd = (*this)[sentence[k]];
+                      const std::string& wrd = (*this)[sentence[k]];
                       std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
                       if(!wrdU.empty() && unicodecharprops::isUCharNonSpacing(wrdU.front())) {
                         break;

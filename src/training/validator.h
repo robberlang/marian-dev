@@ -321,7 +321,7 @@ protected:
                    const Words& cand,
                    const Ptr<data::Batch> batch,
                    size_t no,
-                   Word eos);
+                   const Word& eos);
 
   float calcBLEU(const std::vector<float>& stats);
 

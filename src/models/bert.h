@@ -43,7 +43,7 @@ private:
 
   // Masking function, i.e. replaces a chosen word with either
   // a [MASK] symbol, itself or a random word
-  Word maskOut(Word word, Word mask, std::mt19937& engine) {
+  Word maskOut(const Word& word, const Word& mask, std::mt19937& engine) {
     auto subBatch = subBatches_.front();
 
     // @TODO: turn those threshold into parameters, adjustable from command line

@@ -25,6 +25,11 @@ public:
   const std::vector<size_t>& getSentenceIds() const { return sentenceIds_; }
   void setSentenceIds(const std::vector<size_t>& ids) { sentenceIds_ = ids; }
 
+  const std::vector<size_t>& getSentenceWordCounts() const { return sentenceWordCounts_; }
+  void setSentenceWordCounts(const std::vector<size_t>& wordCounts) {
+    sentenceWordCounts_ = wordCounts;
+  }
+
   const std::vector<std::vector<std::pair<Word, size_t>>>& getSentenceTags() const {
     return sentenceTags_;
   }
@@ -44,6 +49,7 @@ public:
   virtual ~Batch() {};
 protected:
   std::vector<size_t> sentenceIds_;
+  std::vector<size_t> sentenceWordCounts_;
   std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags_;
   std::vector<bool> sentenceSpaceSymbolStarts_;
 };

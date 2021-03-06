@@ -585,7 +585,7 @@ void BleuValidator::updateStats(std::vector<float>& stats,
                  const Words& cand,
                  const Ptr<data::Batch> batch,
                  size_t no,
-                 Word eos) {
+                 const Word& eos) {
   auto corpusBatch = std::static_pointer_cast<data::CorpusBatch>(batch);
   auto subBatch = corpusBatch->back();
 

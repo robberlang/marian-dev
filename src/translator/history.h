@@ -23,12 +23,13 @@ private:
   float wordPenalty(size_t length) { return wp_ * (float)length; }
 public:
   History(size_t lineNo,
+          size_t numSrcWords,
           std::vector<std::pair<Word, size_t>> lineTags,
           bool lineSpaceSymbolStart,
           float alpha = 1.f,
-          float wp_ = 0.f);
+          float wp = 0.f);
 
-  void add(const Beam& beam, Word trgEosId, bool last = false) {
+  void add(const Beam& beam, const Word& trgEosId, bool last = false) {
     if(beam.back()->getPrevHyp() != nullptr) { // if not start hyp do
       for(size_t beamIdx = 0; beamIdx < beam.size(); ++beamIdx)
         if(beam[beamIdx]->getWord() == trgEosId || last) { // if this is a final hyp do
@@ -66,6 +67,7 @@ public:
   }
 
   size_t getLineNum() const { return lineNo_; }
+  size_t getNumSrcWords() const { return numSrcWords_; }
   const std::vector<std::pair<Word, size_t>>& getLineTags() const { return lineTags_; }
   bool getLineSpaceSymbolStart() const { return lineSpaceSymbolStart_; }
 
@@ -73,6 +75,7 @@ private:
   std::vector<Beam> history_; // [time step][index into beam] search grid @TODO: simplify as this is currently an expensive length count
   std::priority_queue<SentenceHypothesisCoord> topHyps_; // all sentence hypotheses (those that reached eos), sorted by score
   size_t lineNo_;
+  size_t numSrcWords_;
   std::vector<std::pair<Word, size_t>> lineTags_;
   bool lineSpaceSymbolStart_;
   float alpha_;

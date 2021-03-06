@@ -237,10 +237,12 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
     subBatches.emplace_back(New<SubBatch>(batchSize, maxDims[j], vocabs_[j]));
   }
 
+  std::vector<size_t> sentenceWordCounts;
   std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags;
   std::vector<bool> sentenceSpaceSymbolStarts;
   std::vector<size_t> words(maxDims.size(), 0);
   for(size_t b = 0; b < batchSize; ++b) {                    // loop over batch entries
+    sentenceWordCounts.emplace_back(0);
     sentenceTags.emplace_back();
     sentenceSpaceSymbolStarts.emplace_back(false);
     bool firstWordMet = false;
@@ -254,6 +256,7 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
           subBatch->mask()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/t) /*t * batchSize + b*/]
               = 1.f;
           words[j]++;
+          ++sentenceWordCounts.back();
           ++t;
           if(!firstWordMet) {
             firstWordMet = true;
@@ -273,6 +276,7 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
 
   auto batch = batch_ptr(new batch_type(subBatches));
   batch->setSentenceIds(sentenceIds);
+  batch->setSentenceWordCounts(sentenceWordCounts);
   batch->setSentenceTags(sentenceTags);
   batch->setSentenceSpaceSymbolStarts(sentenceSpaceSymbolStarts);
 

@@ -629,6 +629,8 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
     ->implicit_val("hard");
   cli.add<bool>("--word-scores",
       "Print word-level scores");
+  cli.add<bool>("--word-counts",
+      "Print source and target word counts");
 #ifdef USE_SENTENCEPIECE
   cli.add<bool>("--no-spm-decode",
       "Keep the output segmented into SentencePiece subwords");
