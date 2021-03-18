@@ -324,6 +324,7 @@ private:
           scorer->setShortlistGenerator(shortlistGenerator_);
       }
       scorers_.push_back(scorers);
+      graph->forward();
     }
   }
 };
