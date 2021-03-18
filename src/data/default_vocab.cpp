@@ -57,17 +57,24 @@ public:
       return unkId_;
   }
 
-  Words encode(const std::string& line, bool addEOS, bool /*inference*/) const override {
+  Words encode(const std::string& line,
+               bool addEOS,
+               bool /*inference*/,
+               InputFormat /*inputFormat*/,
+               bool /*entitizeTags*/) const override {
     auto lineTokens = utils::split(line, " ");
     return (*this)(lineTokens, addEOS);
   }
 
-  std::string decode(const Words& sentence, bool ignoreEOS) const override {
+  std::string decode(const Words& sentence,
+                     bool ignoreEOS,
+                     InputFormat /*inputFormat*/,
+                     bool /*entitizeTags*/) const override {
     auto tokens = (*this)(sentence, ignoreEOS);
     return utils::join(tokens, " ");
   }
 
-  bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const override { return false; }
+  bool sentenceStartsWithSpaceSymbolWord(const Words& /*sentence*/) const override { return false; }
 
   std::string surfaceForm(const Words& sentence) const override {
     sentence;

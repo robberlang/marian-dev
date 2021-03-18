@@ -210,7 +210,8 @@ void CorpusBase::addWordsToSentenceTuple(const std::string& line,
   // This turns a string in to a sequence of numerical word ids. Depending
   // on the vocabulary type, this can be non-trivial, e.g. when SentencePiece
   // is used.
-  Words words = vocabs_[batchIndex]->encode(line, /*addEOS =*/ addEOS_[batchIndex], inference_);
+  Words words = vocabs_[batchIndex]->encode(
+      line, /*addEOS =*/addEOS_[batchIndex], inference_, inputFormat_, entitizeTags_);
 
   ABORT_IF(words.empty(), "Empty input sequences are presently untested");
 

@@ -48,11 +48,15 @@ public:
   // line of text to list of token ids, can perform tokenization
   Words encode(const std::string& line,
                bool addEOS = true,
-               bool inference = false) const;
+               bool inference = false,
+               InputFormat inputFormat = InputFormat::PLAINTEXT,
+               bool entitizeTags = false) const;
 
   // convert sequence of token ids to single line, can perform detokenization
   std::string decode(const Words& sentence,
-                     bool ignoreEOS = true) const;
+                     bool ignoreEOS = true,
+                     InputFormat inputFormat = InputFormat::PLAINTEXT,
+                     bool entitizeTags = false) const;
 
   // determine if the sentence starts with a word that is the sentence symbol (SentencePiece)
   bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const;

@@ -28,8 +28,15 @@ public:
   virtual const std::string& canonicalExtension() const override final { return suffixes()[0]; }
   virtual const std::vector<std::string>& suffixes() const override final;
   virtual Word operator[](const std::string& word) const override final;
-  virtual Words encode(const std::string& line, bool addEOS = true, bool inference = false) const override final;
-  virtual std::string decode(const Words& sentence, bool ignoreEos = true) const override final;
+  virtual Words encode(const std::string& line,
+                       bool addEOS = true,
+                       bool inference = false,
+                       InputFormat inputFormat = InputFormat::PLAINTEXT,
+                       bool entitizeTags = false) const override final;
+  virtual std::string decode(const Words& sentence,
+                             bool ignoreEos = true,
+                             InputFormat inputFormat = InputFormat::PLAINTEXT,
+                             bool entitizeTags = false) const override final;
   virtual bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const override final;
   virtual std::string surfaceForm(const Words& sentence) const override final;
   virtual const std::string& operator[](const Word& id) const override final;

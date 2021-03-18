@@ -22,6 +22,7 @@ public:
         alignment_(options->get<std::string>("alignment", "")),
         alignmentThreshold_(getAlignmentThreshold(alignment_)),
         wordScores_(options->get<bool>("word-scores")),
+        inputFormat_(ConvertInputFormat(options->get<std::string>("input-format", ""))),
         entitizeTags_(options->get<bool>("entitize-tags")),
         wordCounts_(options->get<bool>("word-counts")) {}
 
@@ -45,7 +46,7 @@ public:
       if(reverse_)
         std::reverse(wordsWithTags.begin(), wordsWithTags.end());
 
-      std::string translation = vocab_->decode(wordsWithTags);
+      std::string translation = vocab_->decode(wordsWithTags, true, inputFormat_, entitizeTags_);
       bestn << history->getLineNum() << " ||| " << translation;
 
       if(wordCounts_)
@@ -87,7 +88,7 @@ public:
     if(reverse_)
       std::reverse(wordsWithTags.begin(), wordsWithTags.end());
 
-    std::string translation = vocab_->decode(wordsWithTags);
+    std::string translation = vocab_->decode(wordsWithTags, true, inputFormat_, entitizeTags_);
 
     best1 << translation;
     if(wordCounts_)
@@ -111,6 +112,7 @@ private:
   std::string alignment_;          // A non-empty string indicates the type of word alignment
   float alignmentThreshold_{0.f};  // Threshold for converting attention into hard word alignment
   bool wordScores_{false};         // Whether to print word-level scores or not
+  InputFormat inputFormat_{InputFormat::PLAINTEXT};
   bool entitizeTags_{false};
   bool wordCounts_{false};
 

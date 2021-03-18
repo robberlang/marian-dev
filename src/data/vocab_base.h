@@ -30,10 +30,14 @@ public:
 
   virtual Words encode(const std::string& line,
                        bool addEOS = true,
-                       bool inference = false) const = 0;
+                       bool inference = false,
+                       InputFormat inputFormat = InputFormat::PLAINTEXT,
+                       bool entitizeTags = false) const = 0;
 
   virtual std::string decode(const Words& sentence,
-                             bool ignoreEos = true) const = 0;
+                             bool ignoreEos = true,
+                             InputFormat inputFormat = InputFormat::PLAINTEXT,
+                             bool entitizeTags = false) const = 0;
   virtual bool sentenceStartsWithSpaceSymbolWord(const Words& sentence) const = 0;
   virtual std::string surfaceForm(const Words& sentence) const = 0;
 

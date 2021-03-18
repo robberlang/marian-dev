@@ -18,6 +18,8 @@ protected:
 
   // Data processing may differ in training/inference settings
   bool inference_{false};
+  InputFormat inputFormat_{InputFormat::PLAINTEXT};
+  bool entitizeTags_{false};
 
 public:
   typedef Batch batch_type;
@@ -28,7 +30,9 @@ public:
   DatasetBase(std::vector<std::string> paths, Ptr<Options> options)
       : paths_(std::move(paths)),
         options_(options),
-        inference_(options != nullptr ? options->get<bool>("inference", false) : false) {}
+        inference_(options != nullptr ? options->get<bool>("inference", false) : false),
+        inputFormat_(options != nullptr ? ConvertInputFormat(options->get<std::string>("input-format", "")) : InputFormat::PLAINTEXT),
+        entitizeTags_(options != nullptr ? options->get<bool>("entitize-tags", false) : false) {}
 
   DatasetBase(Ptr<Options> options) : DatasetBase({}, options) {}
 

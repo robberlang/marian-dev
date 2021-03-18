@@ -341,15 +341,17 @@ public:
             && wordStr[2] == (char)0x81);
   }
 
-  Words encode(const std::string& line, bool addEOS, bool inference) const override {
-    InputFormat inputFormat = ConvertInputFormat(options_->get<std::string>("input-format", ""));
+  Words encode(const std::string& line,
+               bool addEOS,
+               bool inference,
+               InputFormat inputFormat,
+               bool entitizeTags) const override {
     Words words;
     std::vector<int> spmIds;
     if(inference || alpha_ == 0) {
       if(!inference || inputFormat == InputFormat::PLAINTEXT) {
         spm_->Encode(line, &spmIds);
       } else {
-        bool entitizeTags = options_->get<bool>("entitize-tags", false);
         sentencepiece::normalizer::AddDummyPrefix addDummyPrefix
             = sentencepiece::normalizer::AddDummyPrefix::DEFAULT;
         for(size_t q = (size_t)-1, p = 0;;) {
@@ -560,8 +562,10 @@ public:
     return words;
   }
 
-  std::string decode(const Words& sentence, bool /*ignoreEOS*/) const override {
-    InputFormat inputFormat = ConvertInputFormat(options_->get<std::string>("input-format", ""));
+  std::string decode(const Words& sentence,
+                     bool /*ignoreEOS*/,
+                     InputFormat inputFormat,
+                     bool entitizeTags) const override {
     std::string line;
     if(keepEncoded_) {  // i.e. keep the sentence segmented into subword units
       for(const Word& id : sentence)
@@ -579,7 +583,6 @@ public:
         }
         spm_->Decode(spmSentence, &line);
       } else {
-        bool entitizeTags = options_->get<bool>("entitize-tags", false);
         std::vector<size_t> entitizedTagIndexes;
         std::vector<bool> spacePrefix;
         spacePrefix.reserve(sentence.size());
@@ -898,7 +901,10 @@ public:
 
   std::string surfaceForm(const Words& sentence) const override {
     // with SentencePiece, decoded form and surface form are identical
-    return decode(sentence, /*ignoreEOS=*/true);
+    return decode(sentence,
+                  /*ignoreEOS=*/true,
+                  /*inputFormat=*/InputFormat::PLAINTEXT,
+                  /*entitizeTags=*/false);
   }
 
   size_t size() const override {

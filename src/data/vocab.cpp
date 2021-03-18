@@ -108,15 +108,19 @@ const std::string& Vocab::operator[](const Word& id) const {
 
 // line of text to list of token ids, can perform tokenization
 Words Vocab::encode(const std::string& line,
-              bool addEOS,
-              bool inference) const {
-  return vImpl_->encode(line, addEOS, inference);
+                    bool addEOS,
+                    bool inference,
+                    InputFormat inputFormat,
+                    bool entitizeTags) const {
+  return vImpl_->encode(line, addEOS, inference, inputFormat, entitizeTags);
 }
 
 // convert sequence of token ids to single line, can perform detokenization
 std::string Vocab::decode(const Words& sentence,
-                    bool ignoreEOS) const {
-  return vImpl_->decode(sentence, ignoreEOS);
+                          bool ignoreEOS,
+                          InputFormat inputFormat,
+                          bool entitizeTags) const {
+  return vImpl_->decode(sentence, ignoreEOS, inputFormat, entitizeTags);
 }
 
 // determine if the sentence starts with a word that is the sentence symbol

@@ -567,7 +567,11 @@ void FactoredVocab::constructNormalizationInfoForVocab() {
 }
 
 // encode a string representation of an entire token sequence, as found in the corpus file, into a 'Word' array
-/*virtual*/ Words FactoredVocab::encode(const std::string& line, bool addEOS /*= true*/, bool /*inference*/ /*= false*/) const /*override final*/ {
+/*virtual*/ Words FactoredVocab::encode(const std::string& line,
+                                        bool addEOS /*= true*/,
+                                        bool /*inference*/ /*= false*/,
+                                        InputFormat /*inputFormat*/ /*= InputFormat::PLAINTEXT*/,
+                                        bool /*entitizeTags*/ /*= false*/) const /*override final*/ {
   std::vector<std::string> lineTokens;
   utils::split(line, lineTokens, " ");
   Words res; res.reserve(lineTokens.size() + addEOS);
@@ -579,7 +583,10 @@ void FactoredVocab::constructNormalizationInfoForVocab() {
 }
 
 // decode a 'Word' array into the external string representation of that token sequence, as written to output files
-/*virtual*/ std::string FactoredVocab::decode(const Words& sentence, bool ignoreEOS /*= true*/) const /*override final*/ {
+/*virtual*/ std::string FactoredVocab::decode(const Words& sentence,
+                                              bool ignoreEOS /*= true*/,
+                                              InputFormat /*inputFormat*/ /*= InputFormat::PLAINTEXT*/,
+                                              bool /*entitizeTags*/ /*= false*/) const /*override final*/ {
   std::vector<std::string> decoded; decoded.reserve(sentence.size());
   for(auto w : sentence)
     if((w != getEosId() || !ignoreEOS))
@@ -589,7 +596,7 @@ void FactoredVocab::constructNormalizationInfoForVocab() {
 
 // determine if the sentence starts with a word that is the sentence symbol
 /*virtual*/ bool FactoredVocab::sentenceStartsWithSpaceSymbolWord(
-    const Words& sentence) const /*override final*/ {
+    const Words& /*sentence*/) const /*override final*/ {
   return false;
 }
 
