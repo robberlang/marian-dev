@@ -94,7 +94,13 @@ SentenceTuple Corpus::next() {
 
     // check if all streams are valid, that is, non-empty and no longer than maximum allowed length
     if(std::all_of(tup.begin(), tup.end(), [=](const Words& words) {
-         return words.size() > 0 && words.size() <= maxLength_;
+         return words.size() > 0
+                && (words.size() <= maxLength_
+                    || static_cast<size_t>(std::count_if(
+                           words.begin(),
+                           words.end(),
+                           [](const Word& w) { return !w.getMarkupTag().operator bool(); }))
+                           <= maxLength_);
        }))
       return tup;
 

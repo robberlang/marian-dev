@@ -23,7 +23,10 @@ const SentenceTuple& TextIterator::dereference() const {
 TextInput::TextInput(const std::vector<std::string>& inputs,
                      std::vector<Ptr<Vocab>> vocabs,
                      Ptr<Options> options)
-    : DatasetBase(inputs, options), vocabs_(std::move(vocabs)) {
+    : DatasetBase(inputs, options),
+      vocabs_(std::move(vocabs)),
+      maxLength_(options_->get<size_t>("max-length")),
+      maxLengthCrop_(options_->get<bool>("max-length-crop")) {
   // note: inputs are automatically stored in the inherited variable named paths_, but these are
   // texts not paths!
   for(const auto& text : paths_)
@@ -45,6 +48,27 @@ SentenceTuple TextInput::next() {
           = vocabs_[i]->encode(line, /*addEOS =*/true, inference_, inputFormat_, entitizeTags_);
       if(words.empty())
         words.push_back(Word::ZERO); // @TODO: What is this for? @BUGBUG: addEOS=true, so this can never happen, right?
+      if(maxLengthCrop_ && words.size() > maxLength_
+         && static_cast<size_t>(std::count_if(words.begin(), words.end(), [](const Word& w) {
+              return !w.getMarkupTag().operator bool();
+            })) > maxLength_) {
+        size_t maxLength = maxLength_ - 1;
+        size_t wordCount = 0;
+        for(auto it = words.begin(); it != words.end(); ++it) {
+          if(!it->getMarkupTag() && ++wordCount >= maxLength) {
+            for(++it; it != words.end();) {
+              if(!it->getMarkupTag()) {
+                it = words.erase(it);
+              } else {
+                ++it;
+              }
+            }
+            break;
+          }
+        }
+        words.push_back(vocabs_[i]->getEosId());
+      }
+
       tup.push_back(words);
     }
   }

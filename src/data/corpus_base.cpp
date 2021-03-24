@@ -215,11 +215,27 @@ void CorpusBase::addWordsToSentenceTuple(const std::string& line,
 
   ABORT_IF(words.empty(), "Empty input sequences are presently untested");
 
-  if(maxLengthCrop_ && words.size() > maxLength_) {
-    words.resize(maxLength_);
+  if(maxLengthCrop_ && words.size() > maxLength_
+     && static_cast<size_t>(std::count_if(words.begin(), words.end(), [](const Word& w) {
+          return !w.getMarkupTag().operator bool();
+        })) > maxLength_) {
+    size_t maxLength = (addEOS_[batchIndex]) ? maxLength_ - 1 : maxLength_;
+    size_t wordCount = 0;
+    for(auto it = words.begin(); it != words.end(); ++it) {
+      if(!it->getMarkupTag() && ++wordCount >= maxLength) {
+        for(++it; it != words.end();) {
+          if(!it->getMarkupTag()) {
+            it = words.erase(it);
+          } else {
+            ++it;
+          }
+        }
+        break;
+      }
+    }
     if(addEOS_[batchIndex])
-      words.back() = vocabs_[batchIndex]->getEosId();
-  }
+      words.push_back(vocabs_[batchIndex]->getEosId());
+}
 
   if(rightLeft_)
     std::reverse(words.begin(), words.end() - 1);
