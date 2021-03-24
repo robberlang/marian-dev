@@ -354,51 +354,63 @@ public:
       } else {
         sentencepiece::normalizer::AddDummyPrefix addDummyPrefix
             = sentencepiece::normalizer::AddDummyPrefix::DEFAULT;
-        for(size_t q = (size_t)-1, p = 0;;) {
-          p = tagfinder::findNextTagStart(line, ++q);
+        for(size_t p = 0, q = 0;;) {
+          p = tagfinder::findNextTagStart(line, p);
           TagType tagType = TagType::NONE;
           size_t r = p;
           if(p != std::string::npos) {
             r = tagfinder::findTagEnd(line, p);
-            if(r == std::string::npos) {
-              q = p;
-              continue;
+            if(inputFormat == InputFormat::HTML && p + 3 < line.length() && line[p + 1] == '!'
+               && line[p + 2] == '-' && line[p + 3] == '-') {
+              // a comment
+              tagType = TagType::EMPTY_TAG;
             }
-            if(line[p + 1] == '/') {
-              tagType = TagType::CLOSE_TAG;
-            } else {
-              size_t tagNameStart = p + 1;
-              size_t t = line.find_first_of(" \t\r\n/>", tagNameStart);
-              size_t tagNameLength = t - tagNameStart;
-              if(inputFormat == InputFormat::XLIFF1) {
-                if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "bpt")
-                   || checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "bx")) {
-                  tagType = TagType::OPEN_TAG;
-                } else if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "ept")
-                          || checkAndMoveToCloseXliffTag(
-                              line, tagNameStart, r, tagNameLength, "ex")) {
-                  tagType = TagType::CLOSE_TAG;
-                } else if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "ph")
-                          || checkAndMoveToCloseXliffTag(
-                              line, tagNameStart, r, tagNameLength, "x")) {
-                  tagType = TagType::EMPTY_TAG;
-                }
-              } else if(inputFormat == InputFormat::HTML) {
-                if(!line.compare(tagNameStart, tagNameLength, "img")
-                   || !line.compare(tagNameStart, tagNameLength, "br")
-                   || !line.compare(tagNameStart, tagNameLength, "wbr")) {
-                  tagType = TagType::EMPTY_TAG;
+            if(r == std::string::npos) {
+              // bad HTML
+              if(tagType != TagType::EMPTY_TAG) {
+                ++p;
+                continue;
+              }
+              // a comment with no close - treat end of text as close
+              r = line.length() - 1;
+            }
+            if(tagType == TagType::NONE) {
+              if(line[p + 1] == '/') {
+                tagType = TagType::CLOSE_TAG;
+              } else {
+                size_t tagNameStart = p + 1;
+                size_t t = line.find_first_of(" \t\r\n/>", tagNameStart);
+                size_t tagNameLength = t - tagNameStart;
+                if(inputFormat == InputFormat::XLIFF1) {
+                  if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "bpt")
+                     || checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "bx")) {
+                    tagType = TagType::OPEN_TAG;
+                  } else if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "ept")
+                            || checkAndMoveToCloseXliffTag(
+                                line, tagNameStart, r, tagNameLength, "ex")) {
+                    tagType = TagType::CLOSE_TAG;
+                  } else if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "ph")
+                            || checkAndMoveToCloseXliffTag(
+                                line, tagNameStart, r, tagNameLength, "x")) {
+                    tagType = TagType::EMPTY_TAG;
+                  }
+                } else if(inputFormat == InputFormat::HTML) {
+                  if(!line.compare(tagNameStart, tagNameLength, "img")
+                     || !line.compare(tagNameStart, tagNameLength, "br")
+                     || !line.compare(tagNameStart, tagNameLength, "wbr")) {
+                    tagType = TagType::EMPTY_TAG;
+                  }
                 }
               }
-            }
 
-            if(tagType == TagType::NONE) {
-              tagType = (line[r - 1] != '/') ? TagType::OPEN_TAG : TagType::EMPTY_TAG;
+              if(tagType == TagType::NONE) {
+                tagType = (line[r - 1] != '/') ? TagType::OPEN_TAG : TagType::EMPTY_TAG;
+              }
             }
           }
-          std::string prefix(line, q, p - q);
-          q = r;
-          if(!prefix.empty()) {
+          std::string prefix;
+          if(q < line.size() && p > q) {
+            prefix.assign(line, q, p - q);
             if(!entitizeTags) {
               if(addDummyPrefix == sentencepiece::normalizer::AddDummyPrefix::OFF
                  && prefix.front() == ' ') {
@@ -418,13 +430,13 @@ public:
               if(prefix.front() == ' '
                  || addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON || words.empty()
                  || !isWordSpaceSymbol(firstWord)) {
-                words.emplace_back(firstWord);
+                words.push_back(firstWord);
               } else {
                 // put the space before the tag
                 words.emplace(words.end() - 1, firstWord);
               }
               for(auto spmIt = spmIds.begin() + 1; spmIt != spmIds.end(); ++spmIt) {
-                words.emplace_back(Word::fromWordIndex(*spmIt));
+                words.push_back(Word::fromWordIndex(*spmIt));
               }
 
               spmIds.clear();
@@ -439,6 +451,7 @@ public:
           if(p == std::string::npos)
             break;
 
+          q = r;
           char tagSpacing = TAGSPACING_NONE;
           if(p > 0 && std::isspace(static_cast<unsigned char>(line[p - 1]))) {
             tagSpacing |= TAGSPACING_BEFORE;
@@ -449,11 +462,11 @@ public:
           }
 
           if(!entitizeTags) {
-            words.emplace_back(Word::fromWordIndexAndTag(
+            words.push_back(Word::fromWordIndexAndTag(
                 (std::size_t)-1, line.substr(p, q - p + 1), tagType, tagSpacing));
           } else {
             if(!prefix.empty() || words.empty() || !words.back().getMarkupTag()) {
-              words.emplace_back(Word::fromWordIndexAndTag(
+              words.push_back(Word::fromWordIndexAndTag(
                   (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType, tagSpacing));
             } else {
               auto& markupTag = words.back().getMarkupTag();
@@ -463,6 +476,7 @@ public:
               markupTag->tag() += line.substr(p, q - p + 1);
             }
           }
+          p = ++q;
         }
 
         if(entitizeTags && !words.empty()) {
@@ -544,7 +558,7 @@ public:
     if(words.empty()) {
       words.reserve(spmIds.size() + addEOS);
       for(auto&& spmId : spmIds)
-        words.emplace_back(Word::fromWordIndex(spmId));
+        words.push_back(Word::fromWordIndex(spmId));
     }
 
     // first non-tag token is just a space? remove it - often such is added with CJK and is not
@@ -558,7 +572,7 @@ public:
     }
 
     if(addEOS)
-      words.emplace_back(getEosId());
+      words.push_back(getEosId());
     return words;
   }
 
