@@ -34,7 +34,7 @@ std::string WordAlignment::toString() const {
 }
 
 WordAlignment ConvertSoftAlignToHardAlign(const SoftAlignment& alignSoft,
-                                          float threshold /*= 0.1f*/,
+                                          float threshold /*= 0.3f*/,
                                           bool useStrategy /*=true*/,
                                           bool matchLastWithLast /*= true*/,
                                           bool lineSpaceSymbolStart /*= false*/,
@@ -137,9 +137,9 @@ WordAlignment ConvertSoftAlignToHardAlign(const SoftAlignment& alignSoft,
         size_t s = std::get<0>(a);
         size_t t = std::get<1>(a);
         if(!((sourceMatched[s].first == (size_t)-1
-              && (targetMatched[t].second < 0.5f || alignSoft[t][s] > 0.3f))
+              && (targetMatched[t].second < 0.8f || alignSoft[t][s] > 0.8f))
              || (targetMatched[t].first == (size_t)-1
-                 && (sourceMatched[s].second < 0.5f || alignSoft[t][s] > 0.3f)))) {
+                 && (sourceMatched[s].second < 0.8f || alignSoft[t][s] > 0.8f)))) {
           continue;
         }
         std::pair<size_t, size_t> item(s, t);

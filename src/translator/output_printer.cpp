@@ -85,7 +85,7 @@ Words OutputPrinter::reinsertTags(const Words& words,
   const size_t maxSrcPos = (!align.empty() && !align[0].empty()) ? align[0].size() - 1 : 0;
   // get hard alignments, sorted by source word position, by which lineTags is also sorted
   const auto hardAlignment = data::ConvertSoftAlignToHardAlign(
-      align, 0.1f, true, true, lineSpaceSymbolStart, translationSpaceSymbolStart);
+      align, 0.3f, true, true, lineSpaceSymbolStart, translationSpaceSymbolStart);
   // vector of tags to be reinserted in the translation: tuple consists of the iterator in the
   // source, the target position, and the opening tag target position if applicable of the beginning
   // of whatever nest there may be
@@ -272,24 +272,25 @@ Words OutputPrinter::reinsertTags(const Words& words,
                         [](const std::pair<size_t, float>& a, const std::pair<size_t, float>& b) {
                           return a.first < b.first;
                         });
-              auto longestContiguousStart = allTgtPoses.begin();
-              size_t longestContiguousLength = 1;
-              float longestContiguousScore = longestContiguousStart->second;
-              auto curContiguousStart = longestContiguousStart;
-              float curContiguousScore = longestContiguousScore;
+              auto bestContiguousStart = allTgtPoses.begin();
+              size_t bestContiguousLength = 1;
+              float bestContiguousScore = bestContiguousStart->second;
+              auto curContiguousStart = bestContiguousStart;
+              float curContiguousScore = bestContiguousScore;
               minTgtPos = (size_t)-1;
               maxTgtPos = (size_t)-1;
               for(auto it = std::next(allTgtPoses.begin());; ++it) {
                 if(it == allTgtPoses.end() || it->first > std::prev(it)->first + 1) {
                   size_t curContiguousLength = std::distance(curContiguousStart, it);
-                  if(curContiguousScore > longestContiguousScore
-                     || (curContiguousScore == longestContiguousScore
-                         && curContiguousLength > longestContiguousLength)) {
-                    longestContiguousLength = curContiguousLength;
-                    longestContiguousStart = curContiguousStart;
-                    longestContiguousScore = curContiguousScore;
+                  if(curContiguousScore > bestContiguousScore
+                     || (curContiguousScore == bestContiguousScore
+                         && curContiguousLength > bestContiguousLength)) {
+                    bestContiguousLength = curContiguousLength;
+                    bestContiguousStart = curContiguousStart;
+                    bestContiguousScore = curContiguousScore;
                   }
-                  if(curContiguousLength > 1 && curContiguousScore > 0.5f) {
+                  if(curContiguousScore > 0.8f || (curContiguousLength > 1
+                     && curContiguousScore > 0.5f)) {
                     maxTgtPos = std::prev(it)->first + 1;
                     if(minTgtPos == (size_t)-1) {
                       minTgtPos = curContiguousStart->first;
@@ -304,10 +305,13 @@ Words OutputPrinter::reinsertTags(const Words& words,
                 curContiguousScore += it->second;
               }
 
+              size_t bestContiguousTgtPos
+                  = std::next(bestContiguousStart, bestContiguousLength - 1)->first + 1;
               if(minTgtPos == (size_t)-1) {
-                minTgtPos = longestContiguousStart->first;
-                maxTgtPos
-                    = std::next(longestContiguousStart, longestContiguousLength - 1)->first + 1;
+                minTgtPos = bestContiguousStart->first;
+                maxTgtPos = bestContiguousTgtPos;
+              } else if(bestContiguousTgtPos > maxTgtPos) {
+                maxTgtPos = bestContiguousTgtPos;
               }
             }
 
