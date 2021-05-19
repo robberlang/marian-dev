@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <vector>
+#include <utility>
 #if(_MSC_VER >= 1800) || (__cplusplus >= 201103L)  // C++ 11
 #include <type_traits>
 #endif
@@ -32,7 +34,10 @@ size_t findNextTagStart(const std::basic_string<T>& str, size_t pos) {
 }
 
 template <typename T>
-size_t findTagEnd(const std::basic_string<T>& str, size_t posLT) {
+size_t findTagEnd(const std::basic_string<T>& str,
+                  size_t posLT,
+                  std::vector<std::pair<std::basic_string<T>, std::basic_string<T>>>* attributes
+                  = nullptr) {
 #if(_MSC_VER >= 1800) || (__cplusplus >= 201103L)  // C++ 11
   static_assert(std::is_integral<T>::value && sizeof(T) >= 1 && sizeof(T) <= 4,
                 "This function is for 8- to 32-bit integral types.");
@@ -76,33 +81,45 @@ size_t findTagEnd(const std::basic_string<T>& str, size_t posLT) {
 
   do {
     // move past the attribute name
+    size_t attname_start = k;
     for(; (k < str.length()) && (str[k] != '>') && (str[k] != '=') && !isTagWhitespace(str[k]); ++k)
       ;
 
+    size_t attname_end = k;
     // go past whitespace
     for(; (k < str.length()) && isTagWhitespace(str[k]); ++k)
       ;
 
     // move past the attribute value
+    size_t attval_start = str.length();
+    size_t attval_end = attval_start;
     if((k < str.length()) && str[k] == '=') {
       // go past whitespace
       for(++k; (k < str.length()) && isTagWhitespace(str[k]); ++k)
         ;
 
       if((k < str.length()) && ((str[k] == '"') || (str[k] == '\''))) {
-        k = str.find(str[k], k + 1);
+        attval_start = k + 1;
+        k = str.find(str[k], attval_start);
         if(k == str.npos)
           return str.npos;
+        attval_end = k;
         ++k;
       } else {
+        attval_start = k;
         // go to first whitespace or end of tag, whichever is first
         for(; (k < str.length()) && (str[k] != '>') && !isTagWhitespace(str[k]); ++k)
           ;
+        attval_end = k;
       }
 
       // go past whitespace
       for(; (k < str.length()) && isTagWhitespace(str[k]); ++k)
         ;
+    }
+    if(attributes) {
+      attributes->emplace_back(str.substr(attname_start, attname_end - attname_start),
+                               str.substr(attval_start, attval_end - attval_start));
     }
   } while((k < str.length()) && (str[k] != '>') && (str[k] != '/'));
 

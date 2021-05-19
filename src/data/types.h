@@ -35,6 +35,7 @@ enum class TagType : char {
 const char TAGSPACING_NONE = 0x0;
 const char TAGSPACING_BEFORE = 0x1;
 const char TAGSPACING_AFTER = 0x2;
+const char TAGSPACING_WITHIN = 0x4;
 
 class MarkupTag {
   std::string tag_;

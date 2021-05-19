@@ -357,9 +357,11 @@ public:
         for(size_t p = 0, q = 0;;) {
           p = tagfinder::findNextTagStart(line, p);
           TagType tagType = TagType::NONE;
+          char tagSpacing = TAGSPACING_NONE;
           size_t r = p;
           if(p != std::string::npos) {
-            r = tagfinder::findTagEnd(line, p);
+            std::vector<std::pair<std::string, std::string>> attributes;
+            r = tagfinder::findTagEnd(line, p, &attributes);
             if(inputFormat == InputFormat::HTML && p + 3 < line.length() && line[p + 1] == '!'
                && line[p + 2] == '-' && line[p + 3] == '-') {
               // a comment
@@ -393,6 +395,15 @@ public:
                             || checkAndMoveToCloseXliffTag(
                                 line, tagNameStart, r, tagNameLength, "x")) {
                     tagType = TagType::EMPTY_TAG;
+                    for(const auto& att : attributes) {
+                      if(att.first == "ctype") {
+                        if(att.second == "lb" || att.second == "pb" || att.second == "x-br"
+                           || att.second == "x-break" || att.second == "x-linefeed") {
+                          tagSpacing |= TAGSPACING_WITHIN;
+                        }
+                        break;
+                      }
+                    }
                   }
                 } else if(inputFormat == InputFormat::HTML) {
                   if(!line.compare(tagNameStart, tagNameLength, "img")
@@ -452,7 +463,6 @@ public:
             break;
 
           q = r;
-          char tagSpacing = TAGSPACING_NONE;
           if(p > 0 && std::isspace(static_cast<unsigned char>(line[p - 1]))) {
             tagSpacing |= TAGSPACING_BEFORE;
           }
@@ -631,7 +641,8 @@ public:
             ++i;
           } else if(wordIndex == (WordIndex)-1) {
             // collect all adjacent tags; find next real word
-            TagType tt = word.getMarkupTag()->type();
+            TagType tagType = word.getMarkupTag()->type();
+            char tagSpacing = word.getMarkupTag()->spacing();
             size_t j = i + 1;
             for(; j < sentence.size() && sentence[j].getMarkupTag()
                   && sentence[j].toWordIndex() == (WordIndex)-1;
@@ -639,12 +650,13 @@ public:
               // need to track whether the tags are all of the same type: open or close, empty tags
               // being neutral
               if(sentence[j].getMarkupTag()->type() != TagType::EMPTY_TAG) {
-                if(tt == TagType::EMPTY_TAG) {
-                  tt = sentence[j].getMarkupTag()->type();
-                } else if(sentence[j].getMarkupTag()->type() != tt) {
-                  tt = TagType::NONE;
+                if(tagType == TagType::EMPTY_TAG) {
+                  tagType = sentence[j].getMarkupTag()->type();
+                } else if(sentence[j].getMarkupTag()->type() != tagType) {
+                  tagType = TagType::NONE;
                 }
               }
+              tagSpacing |= sentence[j].getMarkupTag()->spacing();
             }
 
             bool done = false;
@@ -653,14 +665,15 @@ public:
                && sentence[j] != getEosId()) {
               if(spacePrefix[j]) {
                 spaceRequiredBeforeNextWord = true;
-              } else if(sentenceHasSpaces && tt != TagType::NONE && j + 1 < sentence.size()) {
+              } else if(sentenceHasSpaces && tagType != TagType::NONE
+                        && (tagSpacing & TAGSPACING_WITHIN) == 0 && j + 1 < sentence.size()) {
                 // prevent the tags from appearing in the middle of the word
                 // sentence has spaces, and the adjacent tags are all open or close (possibly with
                 // self-closing mixed in)
                 // if open, move left, if close, move right to where there is a space
                 // deal with everything here:
                 done = true;
-                if(tt != TagType::CLOSE_TAG) {
+                if(tagType != TagType::CLOSE_TAG) {
                   size_t previousWordsEndIdx = spmSentence.size();
                   for(size_t k = 0; k < spmSentence.size(); ++k) {
                     const std::string& wrd = (*this)[sentence[i - k - 1]];
@@ -828,7 +841,7 @@ public:
 
               bool emptyLine = line.empty();
               bool spaceNeededBeforeOpenTag
-                  = spaceRequiredBeforeNextWord && tt != TagType::CLOSE_TAG;
+                  = spaceRequiredBeforeNextWord && tagType != TagType::CLOSE_TAG;
               if(spaceNeededBeforeOpenTag) {
                 for(size_t k = i; k < j; ++k) {
                   const auto& markupTag = sentence[k].getMarkupTag();
@@ -861,7 +874,7 @@ public:
                   spaceAdded = true;
                 }
               }
-              if(spaceRequiredBeforeNextWord && !spaceAdded && tt == TagType::CLOSE_TAG) {
+              if(spaceRequiredBeforeNextWord && !spaceAdded && tagType == TagType::CLOSE_TAG) {
                 line += ' ';
               }
             }
