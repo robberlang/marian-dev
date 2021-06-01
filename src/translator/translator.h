@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <memory>
 
 #include "data/batch_generator.h"
@@ -91,10 +92,6 @@ public:
         auto prec = options_->get<std::vector<std::string>>("precision", {"float32"});
         graph->setDefaultElementType(typeFromString(prec[0]));
         graph->setDevice(device);
-        graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
-        if (device.type == DeviceType::cpu) {
-          graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
-        }
         graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
         graphs_[id] = graph;
 
@@ -253,10 +250,14 @@ public:
                   const std::string& inputFormat) override {
     options_->set("beam-size", beamSize);
     options_->set("input-format", inputFormat);
-    auto corpus = New<data::TextInput>(std::vector<std::string>({input}), srcVocabs_, options_);
-    data::BatchGenerator<data::TextInput> batchGenerator(corpus, options_);
+    // split tab-separated input into fields if necessary
+    auto inputs = options_->get<bool>("tsv", false)
+                      ? convertTsvToLists(input, options_->get<size_t>("tsv-fields", 1))
+                      : std::vector<std::string>({input});
+    auto corpus_ = New<data::TextInput>(inputs, srcVocabs_, options_);
+    data::BatchGenerator<data::TextInput> batchGenerator(corpus_, options_);
 
-    auto collector = New<StringCollector>();
+    auto collector = New<StringCollector>(options_->get<bool>("quiet-translation", false));
     auto printer = New<OutputPrinter>(options_, trgVocab_);
     std::vector<std::future<void>> futures;
     size_t batchId = 0;
@@ -305,10 +306,6 @@ private:
       auto precison = options_->get<std::vector<std::string>>("precision", {"float32"});
       graph->setDefaultElementType(
           typeFromString(precison[0]));  // only use first type, used for parameter type in graph
-      graph->setDevice(device);
-      graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
-      if(device.type == DeviceType::cpu) {
-        graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
       }
       graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
       graphs_.push_back(graph);
@@ -326,6 +323,29 @@ private:
       scorers_.push_back(scorers);
       graph->forward();
     }
+  }
+  // Converts a multi-line input with tab-separated source(s) and target sentences into separate lists
+  // of sentences from source(s) and target sides, e.g.
+  // "src1 \t trg1 \n src2 \t trg2" -> ["src1 \n src2", "trg1 \n trg2"]
+  std::vector<std::string> convertTsvToLists(const std::string& inputText, size_t numFields) {
+    std::vector<std::string> outputFields(numFields);
+
+    std::string line;
+    std::vector<std::string> lineFields(numFields);
+    std::istringstream inputStream(inputText);
+    bool first = true;
+    while(std::getline(inputStream, line)) {
+      utils::splitTsv(line, lineFields, numFields);
+      for(size_t i = 0; i < numFields; ++i) {
+        if(!first)
+          outputFields[i] += "\n";  // join sentences with a new line sign
+        outputFields[i] += lineFields[i];
+      }
+      if(first)
+        first = false;
+    }
+
+    return outputFields;
   }
 };
 }  // namespace marian

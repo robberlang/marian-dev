@@ -27,7 +27,7 @@ TextInput::TextInput(const std::vector<std::string>& inputs,
       vocabs_(std::move(vocabs)),
       maxLength_(options_->get<size_t>("max-length")),
       maxLengthCrop_(options_->get<bool>("max-length-crop")) {
-  // note: inputs are automatically stored in the inherited variable named paths_, but these are
+  // Note: inputs are automatically stored in the inherited variable named paths_, but these are
   // texts not paths!
   for(const auto& text : paths_)
     files_.emplace_back(new std::istringstream(text));
@@ -46,8 +46,6 @@ SentenceTuple TextInput::next() {
     if(io::getline(*files_[i], line)) {
       Words words
           = vocabs_[i]->encode(line, /*addEOS =*/true, inference_, inputFormat_, entitizeTags_);
-      if(words.empty())
-        words.push_back(Word::ZERO); // @TODO: What is this for? @BUGBUG: addEOS=true, so this can never happen, right?
       if(maxLengthCrop_ && words.size() > maxLength_
          && static_cast<size_t>(std::count_if(words.begin(), words.end(), [](const Word& w) {
               return !w.getMarkupTag().operator bool();
@@ -69,14 +67,18 @@ SentenceTuple TextInput::next() {
         words.push_back(vocabs_[i]->getEosId());
       }
 
+      ABORT_IF(words.empty(),   "No words (not even EOS) found in string??");
+      ABORT_IF(tup.size() != i, "Previous tuple elements are missing.");
       tup.push_back(words);
     }
   }
 
-  // check if each input file provided an example
-  if(tup.size() == files_.size())
+  if(tup.size() == files_.size()) // check if each input file provided an example
     return tup;
-  return SentenceTuple(0);
+  else if(tup.size() == 0) // if no file provided examples we are done
+    return SentenceTuple(0);
+  else // neither all nor none => we have at least on missing entry
+    ABORT("There are missing entries in the text tuples.");
 }
 
 }  // namespace data

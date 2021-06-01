@@ -2,7 +2,7 @@
 
 #include "graph/node.h"
 #include "packed_gemm.h"
-#include "tensors/cpu/sharp/int_gemm.h"
+#include "tensors/cpu/integer_common.h"
 
 #if USE_FBGEMM
 #ifdef __GNUC__
@@ -57,14 +57,12 @@ struct FbgemmPacked16PackNodeOp : public UnaryNodeOp {
   int nbcol_;
   uint64_t packsize_;
 
-  FbgemmPacked16PackNodeOp(Expr a, PackMatrix packMat, bool transpose, float clipValue)
+  FbgemmPacked16PackNodeOp(Expr a, PackMatrix packMat, bool transpose)
       : UnaryNodeOp(a, newShape(a, transpose), Type::uint8),
         packMat_(packMat),
         transpose_(transpose) {
     if(packMat != PackMatrix::B)
       ABORT("Only prepacking of B (weight matrix) is supported");
-    if(clipValue != 0)
-      ABORT("Clipping is not supported");
     if(!memoize_)
       ABORT("Only constant weight node can be packed");
   }
@@ -97,7 +95,7 @@ struct FbgemmPacked16PackNodeOp : public UnaryNodeOp {
 
   const std::string type() override { return "packMatFp16"; }
 
-  Shape newShape(Expr MAYBE_UNUSED a, bool MAYBE_UNUSED transpose) {
+  Shape newShape(Expr a, bool transpose) {
 #if USE_FBGEMM
     auto shapeMat = a->shape();
     // Should be 2D - weight matrix
@@ -118,12 +116,13 @@ struct FbgemmPacked16PackNodeOp : public UnaryNodeOp {
     Shape outShape({(int)packsize_});
     return outShape;
 #else
+    a; transpose;
     ABORT("Packed GEMM requires a build with USE_FBGEMM enabled");
     return Shape();
 #endif  // USE_FBGEMM
   }
 };
-  ;
+
 // Pack a matrix (int8) into cache utilization efficient way (block format) together with quantization into int8
 // PackMatrix packMat_: the type of packed matrix - A or B matrix
 // marian::Type packType_: the type the input matrix is packed - packed8avx2 or packed8avx512
@@ -132,7 +131,6 @@ struct FbgemmPacked16PackNodeOp : public UnaryNodeOp {
 // int ncol_: the number of columns
 // uint64_t packsize_: the size of the packed matrix
 //                    (the size of int8 packed B from fbgemm:PackAWithQuantRowOffset + quantization scale, offset and zero point)
-
 struct FbgemmPacked8PackNodeOp : public UnaryNodeOp {
   PackMatrix packMat_;
   marian::Type packType_;
@@ -144,16 +142,13 @@ struct FbgemmPacked8PackNodeOp : public UnaryNodeOp {
   FbgemmPacked8PackNodeOp(Expr a,
                           PackMatrix packMat,
                           marian::Type packType,
-                          bool transpose,
-                          float clipValue)
+                          bool transpose)
       : UnaryNodeOp(a, newShape(a, transpose), Type::uint8),
         packMat_(packMat),
         packType_(packType),
         transpose_(transpose) {
     if(packMat != PackMatrix::B)
       ABORT("Only prepacking of B (weight matrix) is supported");
-    if(clipValue != 0)
-      ABORT("Clipping is not supported");
     if(!memoize_)
       ABORT("Only constant weight node can be packed");
   }
@@ -337,7 +332,7 @@ public:
                                            k_,
                                            transA_,
                                            transB_);
-                       marian::cpu::int16::AddBias(val_, child(2)->val())) };
+                       marian::cpu::integer::AddBias(val_, child(2)->val())) };
     } else {
       nodeOps = { NodeOp(fbgemmPacked8Gemm(val_,
                                            child(0)->val(),
@@ -377,11 +372,11 @@ static inline Expr affine(Expr a, Expr b, Shape bShape, Expr c, bool transA, boo
   }
 }
 
-static inline Expr pack(Type elementType, Expr a, PackMatrix packMat, bool transpose, float clipValue) {
+static inline Expr pack(Type elementType, Expr a, PackMatrix packMat, bool transpose) {
   if (elementType == Type::packed16)
-    return Expression<FbgemmPacked16PackNodeOp>(a, packMat, transpose, clipValue);
+    return Expression<FbgemmPacked16PackNodeOp>(a, packMat, transpose);
   else if (isPacked(elementType) && sizeOf(elementType) == 1)
-    return Expression<FbgemmPacked8PackNodeOp>(a, packMat, elementType, transpose, clipValue);
+    return Expression<FbgemmPacked8PackNodeOp>(a, packMat, elementType, transpose);
   else {
     ABORT("Only int8 and fp16 are available. {}", elementType);
     return nullptr;

@@ -4,9 +4,10 @@
 #include "graph/node_operators.h"
 #include "graph/node_operators_binary.h"
 #include "graph/node_operators_unary.h"
+#include "graph/node_operators_tuple.h"
 
 #include "graph/auto_tuner.h"
-#include "tensors/cpu/int16.h"
+#include "tensors/cpu/intgemm_interface.h"
 #include "tensors/cpu/fbgemm/expanded_gemm.h"
 
 #if USE_FBGEMM
@@ -23,6 +24,16 @@ Expr debug(Expr a, const std::string& message) {
 Expr checkpoint(Expr a) {
   a->markCheckpoint();
   return a;
+}
+
+Expr lambda(const std::vector<Expr>& nodes, Shape shape, Type type, 
+            LambdaNodeFunctor fwd) {
+  return Expression<LambdaNodeOp>(nodes, shape, type, fwd);
+}
+
+Expr lambda(const std::vector<Expr>& nodes, Shape shape, Type type, 
+            LambdaNodeFunctor fwd, LambdaNodeFunctor bwd) {
+  return Expression<LambdaNodeOp>(nodes, shape, type, fwd, bwd);
 }
 
 // logistic function. Note: scipy name is expit()
@@ -55,6 +66,10 @@ Expr log(Expr a) {
 
 Expr exp(Expr a) {
   return Expression<ExpNodeOp>(a);
+};
+
+Expr sin(Expr a) {
+  return Expression<SinNodeOp>(a);
 };
 
 Expr swish(Expr a) {
@@ -118,12 +133,52 @@ Expr logaddexp(Expr a, Expr b) {
   return Expression<LogAddExpNodeOp>(a, b);
 }
 
+Expr2 topk(Expr a, int k, int axis, bool descending) {
+  // only supports topk along last dimension, hence transpose if required
+  a = swapAxes(a, axis, -1);                              // non-op if axes are the same
+  auto topkVal = Expression<TopKNodeOp>(a, k, -1, descending); // axis=-1 is OK now as we swapped
+  auto topkIdx = std::dynamic_pointer_cast<TopKNodeOp>(topkVal)->tupleView(); // get a view on the top-k values
+  return std::make_tuple(swapAxes(topkVal, axis, -1), swapAxes(topkIdx, axis, -1)); // non-op if axes are the same
+}
+
+Expr2 argmax(Expr a, int axis) {
+  return topk(a, 1, axis, /*descending=*/true);
+}
+
+Expr2 argmin(Expr a, int axis) {
+  return topk(a, 1, axis, /*descending=*/false);
+}
+
 Expr maximum(Expr a, Expr b) {
   return Expression<MaximumNodeOp>(a, b);
 }
 
+// @TODO: implement version without constant
+Expr maximum(float a, Expr b) {
+  auto aExpr = b->graph()->constant({}, inits::fromValue(a));
+  return Expression<MaximumNodeOp>(aExpr, b);
+}
+
+Expr maximum(Expr a, float b) {
+  return maximum(b, a);
+}
+
 Expr minimum(Expr a, Expr b) {
   return Expression<MinimumNodeOp>(a, b);
+}
+
+// @TODO: implement version without constant
+Expr minimum(float a, Expr b) {
+  auto aExpr = b->graph()->constant({}, inits::fromValue(a));
+  return Expression<MinimumNodeOp>(aExpr, b);
+}
+
+Expr minimum(Expr a, float b) {
+  return minimum(b, a);
+}
+
+Expr abs(Expr a) {
+  return Expression<AbsNodeOp>(a);
 }
 
 Expr lt(Expr a, Expr b) { return Expression<CmpNodeOp>(a, b, -1, false); }
@@ -411,7 +466,6 @@ Expr weighted_average(Expr in, Expr weights, int ax) {
 
 Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
   auto device = a->graph()->getDeviceId().type;
-  float clipValue = a->graph()->getBackend()->getClip();
   // added support for packed GEMM API (fp16, int8)
   Type aElementType = a->value_type();
   Type bElementType = b->value_type();
@@ -420,18 +474,9 @@ Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
   // --optimize --cpu-thread=N with N > 0 are set.
   if(device == DeviceType::cpu) {
     if(isFloat(aElementType) && isFloat(bElementType)) {
-      if(a->graph()->getBackend()->isOptimized()) {
-        // dotInt16 computes A * B.T, hence the transpose for B to get A * B
-        // if transA = false and transB = false.
-
-        return cpu::int16::dot(
-          cpu::int16::quantize(transA ? transpose(a) : a, clipValue),
-          cpu::int16::quantize(transB ? b : transpose(b), clipValue),
-          scale);
-      } else {
-        return Expression<DotNodeOp>(
-          clip(a, clipValue), clip(b, clipValue), transA, transB, scale);
-      }
+      return Expression<DotNodeOp>(a, b, transA, transB, scale);
+    } else if(isFloat(aElementType) && isIntgemm(bElementType)) {
+      return cpu::integer::affineOrDot(a, b, nullptr, transA, transB, scale);
     } else if(isFloat(aElementType) && isPacked(bElementType)) {
 #if USE_FBGEMM
       // 07/10/2019 - Use packed GEMM only if the cpu architecture supports AVX2
@@ -441,7 +486,7 @@ Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
       // and this cpu lookup is executed only once and the state is kept in FBGEMM.
       if(fbgemm::fbgemmHasAvx2Support()) {
         // This variant of dot product can handle matrix multiplications with packed8 and packed16 weight matrix (B).
-        return cpu::variant::dot(clip(a, clipValue),
+        return cpu::variant::dot(a,
                                  b,
                                  b->shape(),
                                  transA,
@@ -457,8 +502,7 @@ Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
       ABORT("Combination of types A: {} B: {} not supported", aElementType, bElementType);
     }
   } else {
-    return Expression<DotNodeOp>(
-        clip(a, clipValue), clip(b, clipValue), transA, transB, scale);
+    return Expression<DotNodeOp>(a, b, transA, transB, scale);
   }
 }
 
@@ -469,16 +513,9 @@ Expr bdot(Expr a, Expr b, bool transA, bool transB, float scale) {
 static Expr affineDefault(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
   // general version, MKL, CBlas or CUDA
 
-  // if clipValue > 0, the inputs will be clipped to range [-clipValue,
-  // clipValue] This is meant to keep values at the same range as used during
-  // training when optimizing for 8-bit integer products. Likely to be removed
-  // in the future when we explore better ways to handle this.
-  float clipValue = a->graph()->getBackend()->getClip();
-
   int rows = a->shape().elements() / a->shape()[-1];
   Expr ones = a->graph()->ones({ rows, 1 });
-  std::vector<Expr> nodes
-    = { clip(a, clipValue), clip(b, clipValue), bias, ones };
+  std::vector<Expr> nodes = { a, b, bias, ones };
   return Expression<AffineNodeOp>(nodes, transA, transB, scale);
 }
 
@@ -490,22 +527,14 @@ static Expr affineDefault(Expr a, Expr b, Expr bias, bool transA, bool transB, f
 Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
   auto device = a->graph()->getDeviceId().type;
 
-  float clipValue = a->graph()->getBackend()->getClip();
   Type aElementType = a->value_type();
   Type bElementType = b->value_type();
 
   if(device == DeviceType::cpu) {
     if(isFloat(aElementType) && isFloat(bElementType)) {
-      if(a->graph()->getBackend()->isOptimized()) {
-        // cpu int16 version
-        return cpu::int16::affine(
-          cpu::int16::quantize(transA ? transpose(a) : a, clipValue),
-          cpu::int16::quantize(transB ? b : transpose(b), clipValue),
-          bias,
-          scale);
-      } else {
-        return affineDefault(a, b, bias, transA, transB, scale);
-      }
+      return affineDefault(a, b, bias, transA, transB, scale);
+    } else if(isFloat(aElementType) && isIntgemm(bElementType)) {
+      return cpu::integer::affineOrDot(a, b, bias, transA, transB, scale);
     } else if(isFloat(aElementType) && isPacked(bElementType)) {
 #if USE_FBGEMM
       // 07/10/2019 - Use packed GEMM only if the cpu architecture supports AVX2
@@ -515,7 +544,7 @@ Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
       // and this cpu lookup is executed only once and the state is kept in FBGEMM.
       if(fbgemm::fbgemmHasAvx2Support()) {
         // This variant of affine product can handle matrix multiplications with packed8 and packed16 weight matrix (B).
-        return cpu::variant::affine(clip(a, clipValue),
+        return cpu::variant::affine(a,
                                     b,
                                     b->shape(),
                                     bias,
@@ -608,8 +637,8 @@ Expr cast(Expr a, Type type) {
   }
 }
 
-Expr cross_entropy(Expr logits, Expr indices) {
-  return Expression<CrossEntropyNodeOp>(logits, indices);
+Expr cross_entropy(Expr logits, Expr indices, float labelSmoothingAlpha, Type outputType) {
+  return Expression<CrossEntropyNodeOp>(logits, indices, labelSmoothingAlpha, outputType);
 }
 
 // Unlikelihood loss based on https://arxiv.org/abs/1908.04319

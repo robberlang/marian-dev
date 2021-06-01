@@ -20,9 +20,14 @@ struct Ops {
   static HOST_DEVICE_INLINE T log(const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T exp(const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T abs(const T&)  { ABORT("Unknown type"); }
+  static HOST_DEVICE_INLINE T sqr(const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T sqrt(const T&) { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T neg(const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T sgn(const T&)  { ABORT("Unknown type"); }
+
+  static HOST_DEVICE_INLINE T round(const T&)  { ABORT("Unknown type"); }
+  static HOST_DEVICE_INLINE T floor(const T&)  { ABORT("Unknown type"); }
+  static HOST_DEVICE_INLINE T ceil(const T&)   { ABORT("Unknown type"); }
 
   static HOST_DEVICE_INLINE T add(const T&, const T&)  { ABORT("Unknown type"); }
   static HOST_DEVICE_INLINE T sub(const T&, const T&)  { ABORT("Unknown type"); }
@@ -73,9 +78,14 @@ struct Ops<float> {
   static HOST_DEVICE_INLINE float log(const float& x)  { return logf(x); }
   static HOST_DEVICE_INLINE float exp(const float& x)  { return expf(x); }
   static HOST_DEVICE_INLINE float abs(const float& x)  { return fabs(x); }
+  static HOST_DEVICE_INLINE float sqr(const float& x)  { return x * x; }
   static HOST_DEVICE_INLINE float sqrt(const float& x) { return sqrtf(x); }
   static HOST_DEVICE_INLINE float neg(const float& x)  { return -x; }
   static HOST_DEVICE_INLINE float sgn(const float& x)  { return (float)((0 < x) - (x < 0)); }
+
+  static HOST_DEVICE_INLINE float round(const float& x)  { return roundf(x); }
+  static HOST_DEVICE_INLINE float floor(const float& x)  { return floorf(x); }
+  static HOST_DEVICE_INLINE float ceil(const float& x)   { return ceilf(x); }
 
   static HOST_DEVICE_INLINE float add(const float& x, const float& y)  { return x + y; }
   static HOST_DEVICE_INLINE float sub(const float& x, const float& y)  { return x - y; }
@@ -137,9 +147,14 @@ struct Ops<double> {
   static HOST_DEVICE_INLINE double log(const double& x)  { return std::log(x); }
   static HOST_DEVICE_INLINE double exp(const double& x)  { return std::exp(x); }
   static HOST_DEVICE_INLINE double abs(const double& x)  { return std::abs(x); }
+  static HOST_DEVICE_INLINE double sqr(const double& x)  { return x * x; }
   static HOST_DEVICE_INLINE double sqrt(const double& x) { return std::sqrt(x); }
   static HOST_DEVICE_INLINE double neg(const double& x)  { return -x; }
   static HOST_DEVICE_INLINE double sgn(const double& x)  { return (0 < x) - (x < 0); }
+
+  static HOST_DEVICE_INLINE double round(const double& x)  { return std::round(x); }
+  static HOST_DEVICE_INLINE double floor(const double& x)  { return std::floor(x); }
+  static HOST_DEVICE_INLINE double ceil(const double& x)   { return std::ceil(x); }
 
   static HOST_DEVICE_INLINE double add(const double& x, const double& y)  { return x + y; }
   static HOST_DEVICE_INLINE double sub(const double& x, const double& y)  { return x - y; }
@@ -244,11 +259,16 @@ struct Ops<float32x4> {
 
   // @TODO: get rid of loop4 with proper intrisics
   static inline float32x4 abs(const float32x4& x)  { return loop4(Ops<float>::abs, x); }
+  static inline float32x4 sqr(const float32x4& x)  { return _mm_mul_ps(x, x); }
   static inline float32x4 sqrt(const float32x4& x) { return _mm_sqrt_ps(x); }
   static inline float32x4 neg(const float32x4& x)  { return sub(0.f, x); }
 
   // @TODO: get rid of loop4 with proper intrisics
   static inline float32x4 sgn(const float32x4& x)  { return loop4(Ops<float>::sgn, x); }
+
+  static inline float32x4 round(const float32x4& x)  { return _mm_round_ps(x, _MM_FROUND_TO_NEAREST_INT); }
+  static inline float32x4 floor(const float32x4& x)  { return _mm_floor_ps(x); }
+  static inline float32x4 ceil(const float32x4& x)   { return _mm_ceil_ps(x); }
 
   static inline float32x4 add(const float32x4& x, const float32x4& y) { return _mm_add_ps(x, y); }
   static inline float32x4 sub(const float32x4& x, const float32x4& y) { return _mm_sub_ps(x, y); }
@@ -369,11 +389,16 @@ struct Ops<float32x8> {
 
   // @TODO: get rid of loop8 with proper intrisics
   static inline float32x8 abs(const float32x8& x)  { return loop8(Ops<float>::abs, x); }
+  static inline float32x8 sqr(const float32x8& x)  { return _mm256_mul_ps(x, x); }
   static inline float32x8 sqrt(const float32x8& x) { return _mm256_sqrt_ps(x); }
   static inline float32x8 neg(const float32x8& x)  { return sub(0.f, x); }
 
   // @TODO: get rid of loop8 with proper intrisics
   static inline float32x8 sgn(const float32x8& x)  { return loop8(Ops<float>::sgn, x); }
+
+  static inline float32x8 round(const float32x8& x)  { return _mm256_round_ps(x, _MM_FROUND_TO_NEAREST_INT); }
+  static inline float32x8 floor(const float32x8& x)  { return _mm256_floor_ps(x); }
+  static inline float32x8 ceil(const float32x8& x)   { return _mm256_ceil_ps(x); }
 
   static inline float32x8 add(const float32x8& x, const float32x8& y) { return _mm256_add_ps(x, y); }
   static inline float32x8 sub(const float32x8& x, const float32x8& y) { return _mm256_sub_ps(x, y); }
@@ -461,11 +486,16 @@ struct Ops<half> {
   static DEVICE_INLINE half tan(const half& x)  { return hsin(x) / hcos(x); }
   static DEVICE_INLINE half log(const half& x)  { return hlog(x); }
   static DEVICE_INLINE half exp(const half& x)  { return hexp(x); }
+  static DEVICE_INLINE half sqr(const half& x)  { return x * x; }
   static DEVICE_INLINE half sqrt(const half& x) { return hsqrt(x); }
   static DEVICE_INLINE half neg(const half& x)  { return -x; }
 
   static DEVICE_INLINE half abs(const half& x)  { return fabs((float)x); }// @TODO half has this information somewhere in the struct, right?
   static DEVICE_INLINE half sgn(const half& x)  { half zero = 0.f; return (zero < x) - (x < zero); } // @TODO half has this information somewhere in the struct, right?
+
+  static DEVICE_INLINE half round(const half& x)  { return hrint(x); }
+  static DEVICE_INLINE half floor(const half& x)  { return hfloor(x); }
+  static DEVICE_INLINE half ceil(const half& x)   { return hceil(x); } 
 
   static DEVICE_INLINE half add(const half& x, const half& y)  { return x + y; }
   static DEVICE_INLINE half sub(const half& x, const half& y)  { return x - y; }
@@ -567,9 +597,14 @@ UNARY(Tan,     tan,        Ops<ElementType>::tan(x));
 UNARY(Log,     log,        Ops<ElementType>::log(x));
 UNARY(Exp,     exp,        Ops<ElementType>::exp(x));
 UNARY(Abs,     abs,        Ops<ElementType>::abs(x));
+UNARY(Sqr,     sqr,        Ops<ElementType>::sqr(x));
 UNARY(Sqrt,    sqrt,       Ops<ElementType>::sqrt(x));
 UNARY(Neg,     operator-,  Ops<ElementType>::neg(x));
 UNARY(Sgn,     sgn,        Ops<ElementType>::sgn(x));
+
+UNARY(Round,   round,      Ops<ElementType>::round(x));
+UNARY(Floor,   floor,      Ops<ElementType>::floor(x));
+UNARY(Ceil,    ceil,       Ops<ElementType>::ceil(x));
 
 BINARY(Plus,   operator+,  Ops<ElementType>::add(x, y));
 BINARY(Minus,  operator-,  Ops<ElementType>::sub(x, y));

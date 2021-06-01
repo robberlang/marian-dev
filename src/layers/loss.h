@@ -93,6 +93,12 @@ struct StaticLoss {
   StaticLoss(const RationalLoss& dynamic)
   : loss(dynamic.loss<float>()), count(dynamic.count<float>()) {}
 
+  StaticLoss operator +(const StaticLoss& other) const {
+    StaticLoss res(*this);
+    res += other;
+    return res;
+  }
+
   StaticLoss& operator +=(const StaticLoss& other) {
     loss = loss + other.loss;
     count = count + other.count;
@@ -341,26 +347,16 @@ protected:
     // logits may be factored; in that case, the getLoss() function computes one loss for each, and sums them up
     int inFactor = false;
     auto ce = logits.applyLossFunction(labels, [&](Expr logits, Expr indices) {
-      logits = atleast_3d(logits); // we always assuma a time and batch dimension exists.
-      // for bert training or classification the time dimension is lot.
+      logits = atleast_3d(logits); // we always assume a time and batch dimension exists.
+      // for bert training or classification the time dimension is lost.
       // Here safeguard against 2d classifier output, adds 1 on the left, non-op.
-      Expr ce = cast(cross_entropy(logits, indices), Type::float32);
+      
+      Expr ce = cross_entropy(logits, indices, inFactor ? 0.f : labelSmoothing_, Type::float32);
       if (inFactor && factorWeight_ != 1.0f) {
         LOG_ONCE(info, "scaling factor losses with weight {}", factorWeight_);
         ce = ce * factorWeight_;
       }
-      if (labelSmoothing_ > 0) {
-        // ce = -sum_i y^_i log y_i(h)
-        // with smoothing:
-        // ce' = -sum_i ((1-labelSmoothing_) y^_i + labelSmoothing_/N) log y_i(h)
-        //     = -(1-labelSmoothing_) sum_i y^_i log y_i(h) - labelSmoothing_ mean_i log y_i(h)
-        //     = (1-labelSmoothing_) ce - labelSmoothing_ mean_i log y_i(h)
-        auto logits32 = cast(logits, Type::float32);
-        auto ceqNeg = mean(logits32, /*axis=*/ -1) - logsumexp(logits32, /*axis=*/ -1);
-        ce = (1 - labelSmoothing_) * ce - labelSmoothing_ * ceqNeg;
-        //ce = ce - labelSmoothing_ * (ce + ceqNeg); // writing it this way saves one op :)
-        inFactor = true;
-      }
+      inFactor = true;
       return ce;
     });
 
@@ -410,7 +406,7 @@ protected:
     ABORT_IF(logits.getNumFactorGroups() > 1, "Unlikelihood loss is not implemented for factors");
 
     ABORT_IF(!mask, "mask is required"); // @TODO: check this, it seems weights for padding are by default 1, which would make this obsolete.
-    // use label weights, where 1 is GOOD and 0 is BAD. After inversion here, now 1 marks, mask again to eliminate padding (might be obsolete)
+    // use label weights, where 1 is GOOD and 0 is BAD. After inversion here, now 1 marks BAD, mask again to eliminate padding (might be obsolete)
     auto errorMask = (1.f - cast(labelWeights, Type::float32)) * cast(mask, Type::float32);
 
     auto ceUl = logits.applyLossFunction(labels, [&](Expr logits, Expr indices) {
@@ -428,16 +424,45 @@ protected:
   }
 };
 
-
 /**
- * @brief Cross entropy in rescorer used for computing sentences-level log probabilities
+ * @brief Cross entropy in rescorer used for computing sentences-level or word-level log
+ * probabilities
+ *
+ * This class differs from CrossEntropy in the different 'axes' setting, and that label smoothing
+ * is disabled.
  */
 class RescorerLoss : public CrossEntropyLoss {
+private:
+  bool wordScores_{false};  // compute word-level log probabilities
+
 public:
-  // sentence-wise CE, hence reduce only over time axis
-  // This class differs from CrossEntropy in the different 'axes' setting, and that label smoothing is disabled.
-  RescorerLoss() : CrossEntropyLoss(/*axes=*/{-3} /*time axis*/, /*smoothing=*/0.f, /*factorWeight=*/1.0f) {}
+  // For sentence-wise CE reduce only over time axis.
+  // For word-level CE do not reduce over any axis.
+  RescorerLoss(bool wordScores)
+      : CrossEntropyLoss(/*axes=*/wordScores ? std::vector<int>({}) : std::vector<int>({-3}),
+                         /*smoothing=*/0.f,
+                         /*factorWeight=*/1.0f),
+        wordScores_(wordScores) {}
+
+  virtual RationalLoss apply(Logits logits,
+                             const Words& labels,
+                             Expr mask = nullptr,
+                             Expr labelWeights = nullptr) override {
+    auto loss = CrossEntropyLoss::compute(logits, labels, mask, labelWeights);
+
+    if(!wordScores_) {  // for sentence-level CE, reduce loss and labels as in cross-entropy
+      return reduce(loss, mask);
+    } else {  // for word-level CE, reduce labels only to get sentence lengths
+      ABORT_IF(!loss, "Loss has not been computed");
+      ABORT_IF(!mask, "Word-level CE from rescorer must have mask");
+
+      Expr labelsSum = cast(mask, Type::float32);  // accumulate in float32
+      labelsSum = sum(labelsSum, -3);              // reduce over time axis to get sentence lengths
+      return RationalLoss(loss, labelsSum);
+    }
+  }
 };
+
 
 /**
  * @brief Factory for label-wise loss functions

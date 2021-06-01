@@ -10,7 +10,7 @@
 #include "translator/scorers.h"
 #include "data/alignment.h"
 #include "data/vocab_base.h"
-#include "tensors/cpu/fbgemm/expression_graph_packable.h"
+#include "tensors/cpu/expression_graph_packable.h"
 
 #if USE_FBGEMM
 #include "fbgemm/Utils.h"
@@ -30,6 +30,7 @@ template void set(Ptr<Options> options, const std::string& key, const int&);
 template void set(Ptr<Options> options, const std::string& key, const std::string&);
 template void set(Ptr<Options> options, const std::string& key, const bool&);
 template void set(Ptr<Options> options, const std::string& key, const std::vector<std::string>&);
+template void set(Ptr<Options> options, const std::string& key, const std::vector<int>&);
 template void set(Ptr<Options> options, const std::string& key, const float&);
 template void set(Ptr<Options> options, const std::string& key, const double&);
 
@@ -246,7 +247,7 @@ DecoderCpuAvxVersion parseCpuAvxVersion(std::string name) {
 
 // @TODO: clean-up this code and unify with marian-conv. The targetPrec parameter is not clear enought etc.
 bool convertModel(std::string inputFile, std::string outputFile, int32_t targetPrec) {
-  std::cout << "Converting from: " << inputFile << ", to: " << outputFile << std::endl;
+  std::cerr << "Converting from: " << inputFile << ", to: " << outputFile << ", precision: " << targetPrec << std::endl;
 
   YAML::Node config;
   std::stringstream configStr;
@@ -255,7 +256,6 @@ bool convertModel(std::string inputFile, std::string outputFile, int32_t targetP
 
   auto graph = New<ExpressionGraphPackable>();
   graph->setDevice(CPU0);
-  graph->getBackend()->setOptimized(false);
 
   graph->load(inputFile);
   graph->forward();
@@ -268,7 +268,7 @@ bool convertModel(std::string inputFile, std::string outputFile, int32_t targetP
   // added a flag if the weights needs to be packed or not
   graph->packAndSave(outputFile, configStr.str(), saveGemmType);
 
-  std::cout << "Conversion Finished." << std::endl;
+  std::cerr << "Conversion Finished." << std::endl;
 
   return true;
 }

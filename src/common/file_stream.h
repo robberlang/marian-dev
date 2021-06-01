@@ -49,8 +49,9 @@ public:
 
 protected:
   marian::filesystem::Path file_;
-  std::unique_ptr<std::streambuf> streamBuf1_;
-  std::unique_ptr<std::streambuf> streamBuf2_;
+  std::unique_ptr<std::streambuf> streamBuf1_;  // main streambuf
+  std::unique_ptr<std::streambuf> streamBuf2_;  // in case of a .gz file
+  FILE* pipe_{};                                // in case of pipe syntax
   std::vector<char> readBuf_;
 };
 
@@ -61,6 +62,8 @@ class OutputFileStream : public std::ostream {
 public:
   explicit OutputFileStream(const std::string& file);
   virtual ~OutputFileStream();
+
+  std::string getFileName() const;
 
   template <typename T>
   size_t write(const T* ptr, size_t num = 1) {
