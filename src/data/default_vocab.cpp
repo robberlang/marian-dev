@@ -60,16 +60,16 @@ public:
   Words encode(const std::string& line,
                bool addEOS,
                bool /*inference*/,
-               InputFormat /*inputFormat*/,
-               bool /*entitizeTags*/) const override {
+               InputFormat /*inputFormat*/ = InputFormat::PLAINTEXT,
+               bool /*entitizeTags*/ = false) const override {
     auto lineTokens = utils::split(line, " ");
     return (*this)(lineTokens, addEOS);
   }
 
   std::string decode(const Words& sentence,
                      bool ignoreEOS,
-                     InputFormat /*inputFormat*/,
-                     bool /*entitizeTags*/) const override {
+                     InputFormat /*inputFormat*/ = InputFormat::PLAINTEXT,
+                     bool /*entitizeTags*/ = false) const override {
     auto tokens = (*this)(sentence, ignoreEOS);
     return utils::join(tokens, " ");
   }
@@ -77,8 +77,7 @@ public:
   bool sentenceStartsWithSpaceSymbolWord(const Words& /*sentence*/) const override { return false; }
 
   std::string surfaceForm(const Words& sentence) const override {
-    sentence;
-    ABORT("surfaceForm() not supported by this vocabulary type");
+    return decode(sentence, /*ignoreEOS=*/true);
   }
 
   virtual std::string type() const override { return "DefaultVocab"; }
@@ -144,7 +143,7 @@ public:
 
     return std::max(id2str_.size(), maxSize);
   }
-
+  
   // for fakeBatch()
   virtual void createFake() override {
     eosId_ = Word::DEFAULT_EOS_ID;
@@ -228,7 +227,6 @@ private:
     std::string line;
     while(getline(*trainStrm, line)) {
       auto toks = utils::split(line, " ");
-
       for(const std::string& tok : toks) {
         auto iter = counter.find(tok);
         if(iter == counter.end())

@@ -1,10 +1,5 @@
+#include "sentencepiece_vocab.h"
 #include "data/vocab_base.h"
-
-#ifdef USE_SENTENCEPIECE
-#include "sentencepiece/src/sentencepiece_processor.h"
-#include "sentencepiece/src/sentencepiece_trainer.h"
-#endif
-
 #include "common/config.h"
 #include "common/options.h"
 #include "common/logging.h"
@@ -586,6 +581,28 @@ public:
     return words;
   }
 
+  Words encodeWithByteRanges(const string_view& line,
+                               std::vector<string_view> &byteRanges,
+                               bool addEOS, bool inference) const override {
+    sentencepiece::SentencePieceText spt;
+    spm_->Encode(line, &spt);
+
+    Words words;
+    words.reserve(spt.pieces().size() + addEOS);
+    for(auto piece : spt.pieces()) {
+      Word word = Word::fromWordIndex(piece.id());
+      words.push_back(word);
+      string_view byteRange = line.substr(piece.begin(), piece.end() - piece.begin());
+      byteRanges.push_back(byteRange);
+    }
+
+    if (addEOS){
+      words.push_back(getEosId());
+    }
+
+    return words;
+  }
+
   std::string decode(const Words& sentence,
                      bool /*ignoreEOS*/,
                      InputFormat inputFormat,
@@ -925,6 +942,30 @@ public:
     }
     return false;
   }
+  
+  void decodeWithByteRanges(const Words& sentence,
+                            std::string &decoded,
+                            std::vector<string_view> &byteRanges,
+                            bool ignoreEOS) const override {
+    sentencepiece::SentencePieceText spt;
+
+    std::vector<int> spmSentence;
+    spmSentence.reserve(sentence.size());
+    for(auto&& word : sentence)
+      spmSentence.push_back(word.toWordIndex());
+    spm_->Decode(spmSentence, &spt);
+
+    decoded = spt.text(); // Creates copy of string.
+    string_view decoded_view(decoded);
+    for(auto piece : spt.pieces()) {
+      string_view byteRange = decoded_view.substr(piece.begin(), piece.end() - piece.begin());
+      byteRanges.push_back(byteRange);
+    }
+
+    if(ignoreEOS){
+        byteRanges.pop_back();
+    }
+  }
 
   std::string surfaceForm(const Words& sentence) const override {
     // with SentencePiece, decoded form and surface form are identical
@@ -953,6 +994,23 @@ public:
              status.ToString());
 
     return spm_->GetPieceSize();
+  }
+
+  // loadFromSerialized() is based on `absl::string_view` which does *not* own the
+  // memory to which it points. So be sure that the underlying memory is alive during
+  // loading (and no copy will be generated)
+  size_t loadFromSerialized(const string_view& serialized) override {
+    LOG(info, "[data] Loading SentencePiece vocabulary from buffer");
+
+    spm_.reset(new sentencepiece::SentencePieceProcessor());
+    const auto status = spm_->LoadFromSerializedProto(serialized);
+
+    ABORT_IF(!status.ok(),
+             "SentencePiece vocabulary error: {}",
+             status.ToString());
+
+    return spm_->GetPieceSize();
+
   }
 
   std::string toUpper(const std::string& line) const override { return utils::utf8ToUpper(line); }

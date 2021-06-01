@@ -7,9 +7,78 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 
 ## [Unreleased]
+- Disable the undocumented `mmap()` codepath. It is now used for loading models from binary byte arrays.
+- Preload model to Item vector before creating scorers
+
+### Added
+- Add --train-embedder-rank for fine-tuning any encoder(-decoder) model for multi-lingual similarity via softmax-margin loss
+- Add --logical-epoch that allows to redefine the displayed epoch counter as a multiple of n data epochs, updates or labels. Also allows to define width of fractional part with second argument.
+- Add --metrics chrf for computing ChrF according to https://www.aclweb.org/anthology/W15-3049/ and SacreBLEU reference implementation
+- Add --after option which is meant to replace --after-batches and --after-epochs and can take label based criteria
+- Add --transformer-postprocess-top option to enable correctly normalized prenorm behavior
+- Add --task transformer-base-prenorm and --task transformer-big-prenorm
+- Turing and Ampere GPU optimisation support, if the CUDA version supports it.
+- Printing word-level scores in marian-scorer
+- Optimize LayerNormalization on CPU by 6x through vectorization (ffast-math) and fixing performance regression introduced with strides in 77a420
+- Decoding multi-source models in marian-server with --tsv
+- GitHub workflows on Ubuntu, Windows, and MacOS
+- LSH indexing to replace short list
+- ONNX support for transformer models
+- Add topk operator like PyTorch's topk
+- Use *cblas_sgemm_batch* instead of a for loop of *cblas_sgemm* on CPU as the batched_gemm implementation
+- Supporting relative paths in shortlist and sqlite options
+- Training and scoring from STDIN
+- Support for reading from TSV files from STDIN and other sources during training
+  and translation with options --tsv and --tsv-fields n.
+- Internal optional parameter in n-best list generation that skips empty hypotheses.
+- Quantized training (fixed point or log-based quantization) with --quantize-bits N command
+- Support for loading lexical shortlist from a binary blob
+- Integrate a shortlist converter (which can convert a text lexical shortlist to a binary shortlist) into marian-conv with --shortlist option
+- Added ONNXJS submodule to use its wasm-compatible sgemm routine for wasm builds
+- Enable compiling marian on wasm platform
+- Added capability to compile wasm compatible marian sources (i.e. the sources that compile on wasm successfully) natively.
+- Enable loading SentencePiece vocabs from protobuf
+
+### Fixed
+- Segfault of spm_train when compiled with -DUSE_STATIC_LIBS=ON seems to have gone away with update to newer SentencePiece version.
+- Fix bug causing certain reductions into scalars to be 0 on the GPU backend. Removed unnecessary warp shuffle instructions.
+- Do not apply dropout in embeddings layers during inference with dropout-src/trg
+- Print "server is listening on port" message after it is accepting connections
+- Fast implementation of Select for most cases on CPU
+- Fix compilation without BLAS installed
+- Providing a single value to vector-like options using the equals sign, e.g. --models=model.npz
+- Fix quiet-translation in marian-server
+- CMake-based compilation on Windows
+- Fix minor issues with compilation on MacOS
+- Fix warnings in Windows MSVC builds using CMake
+- Fix building server with Boost 1.72
+- Make mini-batch scaling depend on mini-batch-words and not on mini-batch-words-ref
+- In concatenation make sure that we do not multiply 0 with nan (which results in nan)
+- Change Approx.epsilon(0.01) to Approx.margin(0.001) in unit tests. Tolerance is now
+  absolute and not relative. We assumed incorrectly that epsilon is absolute tolerance.
+- Fixed bug in finding .git/logs/HEAD when Marian is a submodule in another project.
+- Properly record cmake variables in the cmake build directory instead of the source tree.
+- Added default "none" for option shuffle in BatchGenerator, so that it works in executables where shuffle is not an option.
+- Added a few missing header files in shortlist.h and beam_search.h.
+- Improved handling for receiving SIGTERM during training. By default, SIGTERM triggers 'save (now) and exit'. Prior to this fix, batch pre-fetching did not check for this sigal, potentially delaying exit considerably. It now pays attention to that. Also, the default behaviour of save-and-exit can now be disabled on the command line with --sigterm exit-immediately.
+- Fix the runtime failures for FASTOPT on 32-bit builds (wasm just happens to be 32-bit) because it uses hashing with an inconsistent mix of uint64_t and size_t.
+- Fix loading the binary model on 32-bit builds and for wasm platform
 
 ### Changed
+- Updated intgemm repository to version 1a176394bb0c2d243c42fe574e063924a92aa120 from https://github.com/kpu/intgemm.
+- Changed SentencePiece repository from https://github.com/google/sentencepiece to the version 3ffdc0065a03cadd9d0e5e123aaf9b6ea7ffb05d of https://github.com/browsermt/sentencepiece.
+- Updated SentencePiece repository to version 8336bbd0c1cfba02a879afe625bf1ddaf7cd93c5 from https://github.com/google/sentencepiece. 
+- Enabled compilation of SentencePiece by default since no dependency on protobuf anymore. 
+- Changed default value of --sentencepiece-max-lines from 10000000 to 2000000 since apparently the new version doesn't sample automatically anymore (Not quite clear how that affects quality of the vocabulary).
+- Change mini-batch-fit search stopping criterion to stop at ideal binary search threshold.
+- --metric bleu now always detokenizes SacreBLEU-style if a vocabulary knows how to, use bleu-segmented to compute BLEU on word ids. bleu-detok is now a synonym for bleu.
+- Move label-smoothing computation into Cross-entropy node
+- Move Simple-WebSocket-Server to submodule
+- Python scripts start with #!/usr/bin/env python3 instead of python
+- Changed compile flags -Ofast to -O3 and remove --ffinite-math
+- Moved old graph groups to depracated folder
 - Make cublas and cusparse handle inits lazy to save memory when unused
+- Replaced exception-based implementation for type determination in FastOpt::makeScalar
 
 ## [1.9.0] - 2020-03-10
 
@@ -34,15 +103,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Support for 16-bit packed models with FBGEMM
 - Multiple separated parameter types in ExpressionGraph, currently inference-only
 - Safe handling of sigterm signal
-- Automatic vectorization of elementwise operations on CPU for tensors dims that 
+- Automatic vectorization of elementwise operations on CPU for tensors dims that
   are divisible by 4 (AVX) and 8 (AVX2)
-- Replacing std::shared_ptr<T> with custom IntrusivePtr<T> for small objects like 
+- Replacing std::shared_ptr<T> with custom IntrusivePtr<T> for small objects like
   Tensors, Hypotheses and Expressions.
 - Fp16 inference working for translation
 - Gradient-checkpointing
 
 ### Fixed
-- Replace value for INVALID_PATH_SCORE with std::numer_limits<float>::lowest() 
+- Replace value for INVALID_PATH_SCORE with std::numer_limits<float>::lowest()
   to avoid overflow with long sequences
 - Break up potential circular references for GraphGroup*
 - Fix empty source batch entries with batch purging
@@ -53,16 +122,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - FastOpt now reads "n" and "y" values as strings, not as boolean values
 - Fixed multiple reduction kernels on GPU
 - Fixed guided-alignment training with cross-entropy
-- Replace IntrusivePtr with std::uniq_ptr in FastOpt, fixes random segfaults 
+- Replace IntrusivePtr with std::uniq_ptr in FastOpt, fixes random segfaults
   due to thread-non-safty of reference counting.
 - Make sure that items are 256-byte aligned during saving
 - Make explicit matmul functions respect setting of cublasMathMode
 - Fix memory mapping for mixed paramter models
 - Removed naked pointer and potential memory-leak from file_stream.{cpp,h}
 - Compilation for GCC >= 7 due to exception thrown in destructor
-- Sort parameters by lexicographical order during allocation to ensure consistent 
+- Sort parameters by lexicographical order during allocation to ensure consistent
   memory-layout during allocation, loading, saving.
-- Output empty line when input is empty line. Previous behavior might result in 
+- Output empty line when input is empty line. Previous behavior might result in
   hallucinated outputs.
 - Compilation with CUDA 10.1
 
@@ -73,7 +142,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Return error signal on SIGTERM
 - Dropped support for CUDA 8.0, CUDA 9.0 is now minimal requirement
 - Removed autotuner for now, will be switched back on later
-- Boost depdendency is now optional and only required for marian_server 
+- Boost depdendency is now optional and only required for marian_server
 - Dropped support for g++-4.9
 - Simplified file stream and temporary file handling
 - Unified node intializers, same function API.

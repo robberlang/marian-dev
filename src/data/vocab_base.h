@@ -10,6 +10,9 @@ namespace marian {
 class IVocab {
 public:
   virtual size_t load(const std::string& vocabPath, size_t maxSize = 0) = 0;
+  virtual size_t loadFromSerialized(const string_view& serialized){
+    ABORT("loadFromSerialized(...) is not implemented for this VocabType.");
+  }
 
   virtual void create(const std::string& vocabPath,
                       const std::vector<std::string>& trainPaths,
@@ -33,6 +36,22 @@ public:
                        bool inference = false,
                        InputFormat inputFormat = InputFormat::PLAINTEXT,
                        bool entitizeTags = false) const = 0;
+
+  virtual Words encodeWithByteRanges(const string_view & /*line*/,
+                                       std::vector<string_view> & /*byteRanges*/,
+                                       bool /*addEOS*/,
+                                       bool /*inference*/) const {
+    ABORT("encodeWithByteRanges(...) is not implemented for this VocabType.");
+  }
+
+  virtual void decodeWithByteRanges(const Words & /*sentence*/,
+                                       std::string & /*line*/,
+                                       std::vector<string_view> & /*byteRanges*/,
+                                       bool /*ignoreEOS*/)
+                                       const {
+    ABORT("decodeWithByteRanges(...) is not implemented for this VocabType.");
+  }
+
 
   virtual std::string decode(const Words& sentence,
                              bool ignoreEos = true,

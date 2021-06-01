@@ -26,7 +26,9 @@
 #pragma warning(push) // 4101: 'identifier' : unreferenced local variable. One parameter variable in zstr.hpp is not used.
 #pragma warning(disable : 4101)
 #endif
+#ifndef WASM_COMPATIBLE_SOURCE
 #include "3rd_party/zstr/zstr.hpp"
+#endif
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -49,8 +51,9 @@ public:
 
 protected:
   marian::filesystem::Path file_;
-  std::unique_ptr<std::streambuf> streamBuf1_;
-  std::unique_ptr<std::streambuf> streamBuf2_;
+  std::unique_ptr<std::streambuf> streamBuf1_;  // main streambuf
+  std::unique_ptr<std::streambuf> streamBuf2_;  // in case of a .gz file
+  FILE* pipe_{};                                // in case of pipe syntax
   std::vector<char> readBuf_;
 };
 
@@ -61,6 +64,8 @@ class OutputFileStream : public std::ostream {
 public:
   explicit OutputFileStream(const std::string& file);
   virtual ~OutputFileStream();
+
+  std::string getFileName() const;
 
   template <typename T>
   size_t write(const T* ptr, size_t num = 1) {

@@ -31,6 +31,8 @@ public:
 
   size_t load(const std::string& vocabPath, size_t maxSize = 0);
 
+  size_t loadFromSerialized(const string_view& serialized);
+
   void create(const std::string& vocabPath,
               const std::vector<std::string>& trainPaths,
               size_t maxSize);
@@ -51,6 +53,16 @@ public:
                bool inference = false,
                InputFormat inputFormat = InputFormat::PLAINTEXT,
                bool entitizeTags = false) const;
+
+  Words encodeWithByteRanges(const string_view &line,
+                               std::vector<string_view> &byteRanges,
+                               bool addEOS = true,
+                               bool inference = false) const;
+
+  void decodeWithByteRanges(const Words & sentence,
+                               std::string & line,
+                               std::vector<string_view> &byteRanges,
+                               bool ignoreEOS = true) const;
 
   // convert sequence of token ids to single line, can perform detokenization
   std::string decode(const Words& sentence,

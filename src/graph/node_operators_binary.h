@@ -13,8 +13,65 @@
 
 namespace marian {
 
+class LambdaNodeOp : public NaryNodeOp {
+private:
+  typedef const std::vector<Expr>& Inputs;
+  typedef std::function<void(Expr, Inputs)> LambdaNodeFunctor;
+  
+  std::unique_ptr<LambdaNodeFunctor> forward_;
+  std::unique_ptr<LambdaNodeFunctor> backward_;
+  
+public:
+  LambdaNodeOp(Inputs inputs, Shape shape, Type type, 
+               LambdaNodeFunctor forward) 
+  : NaryNodeOp(inputs, shape, type), 
+    forward_(new LambdaNodeFunctor(forward)) {
+    Node::trainable_ = !!backward_;
+  }
+
+  LambdaNodeOp(Inputs inputs, Shape shape, Type type, 
+               LambdaNodeFunctor forward,
+               LambdaNodeFunctor backward) 
+  : NaryNodeOp(inputs, shape, type), 
+    forward_(new LambdaNodeFunctor(forward)),
+    backward_(new LambdaNodeFunctor(backward)) {
+  }
+
+  void forward() override {
+    (*forward_)(this, children_);
+  }
+
+  void backward() override {
+    ABORT_IF(!backward_, "No backward lambda given?");
+    (*backward_)(this, children_);
+  }
+
+  const std::string type() override { return "lambda"; }
+
+  virtual size_t hash() override {
+    size_t seed = NaryNodeOp::hash();
+    util::hash_combine(seed, forward_.get());
+    util::hash_combine(seed, backward_.get());
+    return seed;
+  }
+
+  virtual bool equal(Expr node) override {
+    if(!NaryNodeOp::equal(node))
+      return false;
+    auto cnode = std::dynamic_pointer_cast<LambdaNodeOp>(node);
+    if(!cnode)
+      return false;
+    if(forward_ != cnode->forward_)   // pointer compare on purpose
+      return false;
+    if(backward_ != cnode->backward_) // pointer compare on purpose
+      return false;
+    return true;
+  }
+};
+
 class DotNodeOp : public NaryNodeOp {
 private:
+  friend class SerializationHelpers;
   bool transA_;
   bool transB_;
   float scalar_;
@@ -35,14 +92,14 @@ public:
 
     auto shapeB = b->shape();
     if(transB) {
-      shapeB.set(shapeB.size() - 2, b->shape()[shapeB.size() - 1]);
+      shapeB.set(shapeB.size() - 2, b->shape()[shapeB.size() - 1]); // @TODO: why not use negative indices?
       shapeB.set(shapeB.size() - 1, b->shape()[shapeB.size() - 2]);
     }
 
     Shape outShape = shapeA;
     outShape.set(outShape.size() - 1, shapeB[shapeB.size() - 1]);
     ABORT_IF(shapeA[shapeA.size() - 1] != shapeB[shapeB.size() - 2],
-             "Matrix product requires inner dimensions to match");
+             "Matrix product requires inner dimensions to match in {}{} * {}{}", std::string(shapeA), transA, std::string(shapeB), transB);
     return outShape;
   }
 
@@ -157,6 +214,7 @@ public:
 
 class AffineNodeOp : public NaryNodeOp {
 private:
+  friend class SerializationHelpers;
   bool transA_;
   bool transB_;
   float scalar_;
@@ -187,7 +245,7 @@ public:
     Shape outShape = shapeA;
     outShape.set(outShape.size() - 1, shapeB[shapeB.size() - 1]);
     ABORT_IF(shapeA[shapeA.size() - 1] != shapeB[shapeB.size() - 2],
-             "Matrix product requires inner dimensions to match");
+             "Matrix product requires inner dimensions to match in {}{} * {}{}", std::string(shapeA), transA, std::string(shapeB), transB);
     return outShape;
   }
 
@@ -324,6 +382,7 @@ public:
 
 class DotBatchedNodeOp : public NaryNodeOp {
 private:
+  friend class SerializationHelpers;
   bool transA_;
   bool transB_;
   float scalar_;
@@ -351,7 +410,7 @@ public:
     Shape outShape = shapeA;
     outShape.set(-1, shapeB[-1]);
     ABORT_IF(shapeA[-1] != shapeB[-2],
-             "Batched matrix product requires inner dimensions to match");
+             "Batched matrix product requires inner dimensions to match in {}{} * {}{}", std::string(shapeA), transA, std::string(shapeB), transB);
     return outShape;
   }
 
@@ -674,12 +733,12 @@ struct GatherNodeOp : public NaryNodeOp {
 
   NodeOps forwardOps() override {
     return {NodeOp(
-        Select(val_, child(0)->val(), child(1)->val(), axis_))};
+      Select(val_, child(0)->val(), child(1)->val(), axis_))};
   }
 
   NodeOps backwardOps() override {
     return {NodeOp(
-        Insert(child(0)->grad(), adj_, child(1)->val(), axis_))};
+      Insert(child(0)->grad(), adj_, child(1)->val(), axis_))};
   }
 
   Shape newShape(Expr a, int axis, Expr indices) {
@@ -722,6 +781,8 @@ struct GatherNodeOp : public NaryNodeOp {
     return true;
   }
 
+private:
+  friend class SerializationHelpers;
   int axis_;
 };
 
@@ -817,7 +878,7 @@ struct MultNodeOp : public ElementBinaryNodeOp {
             NodeOp(Add(_1 * _2, child(1)->grad(), adj_, child(0)->val()))};
   }
 
-  const std::string type() override { return "×"; }
+  const std::string type() override { return "*"; }
 };
 
 struct DivNodeOp : public ElementBinaryNodeOp {
@@ -842,7 +903,7 @@ struct DivNodeOp : public ElementBinaryNodeOp {
                    child(1)->val()))};
   }
 
-  const std::string type() override { return "÷"; }
+  const std::string type() override { return "/"; }
 };
 
 // struct PowNodeOp : public ElementBinaryNodeOp {
@@ -1011,9 +1072,14 @@ private:
 // For each vocabulary item v, the only non-zero element in a row in the sum is the item
 // that matches the label indexed by i (the picked element).
 // C = sum_{v in V}(-logsoftmax(A) * delta(v, i) = -logsoftmax(A)[i]
-struct CrossEntropyNodeOp : public NaryNodeOp {
-  CrossEntropyNodeOp(Expr a, Expr indices)
-    : NaryNodeOp({a, indices}, newShape(a), a->value_type()) {
+class CrossEntropyNodeOp : public NaryNodeOp {
+private:
+  float labelSmoothingAlpha_;
+
+public:
+  CrossEntropyNodeOp(Expr a, Expr indices, float labelSmoothingAlpha, Type outputType = Type::float32)
+    : NaryNodeOp({a, indices}, newShape(a), outputType),
+      labelSmoothingAlpha_(labelSmoothingAlpha) {
     matchOrAbort<IndexType>(indices->value_type());
     int rows   = a->shape().elements() / a->shape()[-1];
     int labels = indices->shape().elements();
@@ -1027,12 +1093,29 @@ struct CrossEntropyNodeOp : public NaryNodeOp {
   }
 
   NodeOps forwardOps() override {
-    return {NodeOp(CrossEntropyPick(val_, child(0)->val(), child(1)->val()))};
+    return {NodeOp(CrossEntropyPick(val_, child(0)->val(), child(1)->val(), labelSmoothingAlpha_))};
   }
 
   NodeOps backwardOps() override {
     return {NodeOp(CrossEntropyPickBackward(
-        child(0)->grad(), adj_, child(0)->val(), child(1)->val()))};
+        child(0)->grad(), adj_, child(0)->val(), child(1)->val(), labelSmoothingAlpha_))};
+  }
+
+  virtual size_t hash() override {
+    size_t seed = NaryNodeOp::hash();
+    util::hash_combine(seed, labelSmoothingAlpha_);
+    return seed;
+  }
+
+  virtual bool equal(Expr node) override {
+    if(!NaryNodeOp::equal(node))
+      return false;
+    auto cnode = std::dynamic_pointer_cast<CrossEntropyNodeOp>(node);
+    if(!cnode)
+      return false;
+    if(labelSmoothingAlpha_ != cnode->labelSmoothingAlpha_)
+      return false;
+    return true;
   }
 
   const std::string type() override { return "x-ent"; }
@@ -1047,19 +1130,19 @@ struct ConcatenateNodeOp : public NaryNodeOp {
     ABORT_IF(nodes.empty(), "No child nodes given");
 
     Shape shape = nodes[0]->shape();
-    ax_ = shape.axis(ax);
+    axis_ = shape.axis(ax);
 
     int sum = 0;
     auto checkShape = shape;
     for(auto child : nodes) {
-      checkShape.set(ax_, child->shape()[ax_]); // don't abort on different sizes on axis dim.
+      checkShape.set(axis_, child->shape()[axis_]); // don't abort on different sizes on axis dim.
       ABORT_IF(checkShape != child->shape(),
                "Child shapes {} and {} cannot be concatenated along axis {}",
                shape, child->shape(), ax);
 
-      sum += child->shape()[ax_];
+      sum += child->shape()[axis_];
     }
-    shape.set(ax_, sum);
+    shape.set(axis_, sum);
 
     return shape;
   }
@@ -1068,7 +1151,7 @@ struct ConcatenateNodeOp : public NaryNodeOp {
     std::vector<Tensor> concatenees;
     for(size_t i = 0; i < children_.size(); ++i)
       concatenees.push_back(child(i)->val());
-    Concatenate(val_, concatenees, ax_);
+    Concatenate(val_, concatenees, axis_);
   }
 
   void backward() override {
@@ -1078,12 +1161,12 @@ struct ConcatenateNodeOp : public NaryNodeOp {
       childPtr->set_zero_adjoint();  // @TODO: this is a hotfix, do this properly
       deconcatenees.push_back(childPtr->grad());
     }
-    Deconcatenate(deconcatenees, adj_, ax_);
+    Deconcatenate(deconcatenees, adj_, axis_);
   }
 
   virtual size_t hash() override {
     size_t seed = NaryNodeOp::hash();
-    util::hash_combine(seed, ax_);
+    util::hash_combine(seed, axis_);
     return seed;
   }
 
@@ -1093,20 +1176,25 @@ struct ConcatenateNodeOp : public NaryNodeOp {
     auto cnode = std::dynamic_pointer_cast<ConcatenateNodeOp>(node);
     if(!cnode)
       return false;
-    if(ax_ != cnode->ax_)
+    if(axis_ != cnode->axis_)
       return false;
     return true;
   }
 
   const std::string type() override { return "concat"; }
 
-  int ax_;
+private:
+  friend class SerializationHelpers;
+  int axis_;
 };
 
+// layer norm along last axis
 struct LayerNormalizationOp : public NaryNodeOp {
 public:
   LayerNormalizationOp(const std::vector<Expr>& nodes, float eps = 1e-9)
-      : NaryNodeOp(nodes), eps_(eps) {}
+      : NaryNodeOp(nodes), eps_(eps) {
+    // @TODO: dimension check
+  }
 
   NodeOps forwardOps() override {
     return {NodeOp(
@@ -1117,6 +1205,7 @@ public:
                            eps_))};
   }
 
+  // @BUGBUG: backward has not been tested for broadcasting gamma/beta
   NodeOps backwardOps() override {
     return {NodeOp(
       LayerNormalizationGrad(
@@ -1152,6 +1241,7 @@ public:
   }
 
 private:
+  friend class SerializationHelpers; // @TODO: use the same name for this as SqrtNodeOp
   float eps_;
 };
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <memory>
 
 #include "data/batch_generator.h"
@@ -7,7 +8,9 @@
 #include "data/shortlist.h"
 #include "data/text_input.h"
 
+#if USE_PTHREADS
 #include "3rd_party/threadpool.h"
+#endif
 
 #include "translator/history.h"
 #include "translator/output_collector.h"
@@ -17,16 +20,7 @@
 #include "translator/scorers.h"
 
 // currently for diagnostics only, will try to mmap files ending in *.bin suffix when enabled.
-// @TODO: add this as an actual feature.
-#ifdef CUDA_FOUND
-#define MMAP 0
-#else
-#define MMAP 1
-#endif
-
-#if MMAP
 #include "3rd_party/mio/mio.hpp"
-#endif
 
 namespace marian {
 
@@ -43,9 +37,8 @@ private:
 
   size_t numDevices_;
 
-#if MMAP
-  std::vector<mio::mmap_source> mmaps_;
-#endif
+  std::vector<mio::mmap_source> model_mmaps_; // map
+  std::vector<std::vector<io::Item>> model_items_; // non-mmap
 
 public:
   Translate(Ptr<Options> options)
@@ -63,26 +56,40 @@ public:
     trgVocab_->load(vocabs.back());
     auto srcVocab = corpus_->getVocabs()[0];
 
-    if(options_->hasAndNotEmpty("shortlist"))
-      shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
-          options_, srcVocab, trgVocab_, 0, 1, vocabs.front() == vocabs.back());
+    if(options_->hasAndNotEmpty("shortlist")) {
+      auto slOptions = options_->get<std::vector<std::string>>("shortlist");
+      ABORT_IF(slOptions.empty(), "No path to shortlist file given");
+      std::string filename = slOptions[0];
+      if(data::isBinaryShortlist(filename))
+        shortlistGenerator_ = New<data::BinaryShortlistGenerator>(
+            options_, srcVocab, trgVocab_, 0, 1, vocabs.front() == vocabs.back());
+      else
+          shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
+              options_, srcVocab, trgVocab_, 0, 1, vocabs.front() == vocabs.back());
+    }
 
     auto devices = Config::getDevices(options_);
     numDevices_ = devices.size();
 
+#if USE_PTHREADS
     ThreadPool threadPool(numDevices_, numDevices_);
+#endif
     scorers_.resize(numDevices_);
     graphs_.resize(numDevices_);
 
-#if MMAP
     auto models = options->get<std::vector<std::string>>("models");
-    for(auto model : models) {
-      marian::filesystem::Path modelPath(model);
-      ABORT_IF(modelPath.extension() != marian::filesystem::Path(".bin"),
-              "Non-binarized models cannot be mmapped");
-      mmaps_.push_back(std::move(mio::mmap_source(model)));
+    if(options_->get<bool>("model-mmap", false)) {
+      for(auto model : models) {
+        ABORT_IF(!io::isBin(model), "Non-binarized models cannot be mmapped");
+        model_mmaps_.push_back(mio::mmap_source(model));
+      }
     }
-#endif
+    else {
+      for(auto model : models) {
+        auto items = io::loadItems(model);
+        model_items_.push_back(std::move(items));
+      }
+    }
 
     size_t id = 0;
     for(auto device : devices) {
@@ -91,18 +98,18 @@ public:
         auto prec = options_->get<std::vector<std::string>>("precision", {"float32"});
         graph->setDefaultElementType(typeFromString(prec[0]));
         graph->setDevice(device);
-        graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
-        if (device.type == DeviceType::cpu) {
-          graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
-        }
+        graph->getBackend()->configureDevice(options_);
         graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
         graphs_[id] = graph;
 
-#if MMAP
-        auto scorers = createScorers(options_, mmaps_);
-#else
-        auto scorers = createScorers(options_);
-#endif
+        std::vector<Ptr<Scorer>> scorers;
+        if(options_->get<bool>("model-mmap", false)) {
+          scorers = createScorers(options_, model_mmaps_);
+        }
+        else {
+          scorers = createScorers(options_, model_items_);
+        }
+
         for(auto scorer : scorers) {
           scorer->init(graph);
           if(shortlistGenerator_)
@@ -113,7 +120,11 @@ public:
         graph->forward();
       };
 
+#if USE_PTHREADS
       threadPool.enqueue(task, device, id++);
+#else
+      task(device, id++);
+#endif
     }
 
     if(options_->get<bool>("output-sampling", false)) {
@@ -129,9 +140,16 @@ public:
   }
 
   void run() override {
+  #if USE_PTHREADS
     data::BatchGenerator<data::Corpus> bg(corpus_, options_);
+  #else
+    // Set to false to run non-async mode
+    data::BatchGenerator<data::Corpus> bg(corpus_, options_, nullptr, false);
+  #endif
 
+#if USE_PTHREADS
     ThreadPool threadPool(numDevices_, numDevices_);
+#endif
 
     size_t batchId = 0;
     auto collector = New<OutputCollector>(options_->get<std::string>("output"));
@@ -173,7 +191,11 @@ public:
         }
       };
 
+#if USE_PTHREADS
       threadPool.enqueue(task, batchId++);
+#else
+      task(batchId++);
+#endif
     }
   }
 };
@@ -188,7 +210,9 @@ private:
   std::vector<Ptr<Vocab>> srcVocabs_;
   Ptr<Vocab> trgVocab_;
   Ptr<const data::ShortlistGenerator> shortlistGenerator_;
+#if USE_PTHREADS
   std::unique_ptr<ThreadPool> threadPool_;
+#endif
 
   size_t numDevices_;
 
@@ -231,9 +255,17 @@ public:
     trgVocab_->load(vocabPaths.back());
 
     // load lexical shortlist
-    if(options_->hasAndNotEmpty("shortlist"))
-      shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
-          options_, srcVocabs_.front(), trgVocab_, 0, 1, vocabPaths.front() == vocabPaths.back());
+    if(options_->hasAndNotEmpty("shortlist")) {
+      auto slOptions = options_->get<std::vector<std::string>>("shortlist");
+      ABORT_IF(slOptions.empty(), "No path to shortlist file given");
+      std::string filename = slOptions[0];
+      if(data::isBinaryShortlist(filename))
+        shortlistGenerator_ = New<data::BinaryShortlistGenerator>(
+            options_, srcVocabs_.front(), trgVocab_, 0, 1, vocabPaths.front() == vocabPaths.back());
+      else
+        shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
+            options_, srcVocabs_.front(), trgVocab_, 0, 1, vocabPaths.front() == vocabPaths.back());
+    }
 
 #if MMAP
     mmaps_ = New<std::vector<mio::mmap_source>>();
@@ -253,12 +285,22 @@ public:
                   const std::string& inputFormat) override {
     options_->set("beam-size", beamSize);
     options_->set("input-format", inputFormat);
-    auto corpus = New<data::TextInput>(std::vector<std::string>({input}), srcVocabs_, options_);
-    data::BatchGenerator<data::TextInput> batchGenerator(corpus, options_);
-
-    auto collector = New<StringCollector>();
-    auto printer = New<OutputPrinter>(options_, trgVocab_);
+    // split tab-separated input into fields if necessary
+    auto inputs = options_->get<bool>("tsv", false)
+                      ? convertTsvToLists(input, options_->get<size_t>("tsv-fields", 1))
+                      : std::vector<std::string>({input});
+    auto corpus_ = New<data::TextInput>(inputs, srcVocabs_, options_);
+  #if USE_PTHREADS
+    data::BatchGenerator<data::TextInput> batchGenerator(corpus_, options_);
     std::vector<std::future<void>> futures;
+  #else
+    // Set to false to run non-async mode
+    data::BatchGenerator<data::TextInput> batchGenerator(corpus_, options_, nullptr, false);
+  #endif
+
+
+    auto collector = New<StringCollector>(options_->get<bool>("quiet-translation", false));
+    auto printer = New<OutputPrinter>(options_, trgVocab_);
     size_t batchId = 0;
 
     batchGenerator.prepare();
@@ -280,18 +322,48 @@ public:
         }
       };
 
+#if USE_PTHREADS
       futures.push_back(threadPool_->enqueue(task, batchId++));
+#else
+      task(batchId++);
+#endif
     }
 
+#if USE_PTHREADS
     for(auto& f : futures) {
       f.wait();
     }
+#endif
 
     auto translations = collector->collect(options_->get<bool>("n-best"));
     return utils::join(translations, "\n");
   }
 
 private:
+  // Converts a multi-line input with tab-separated source(s) and target sentences into separate lists
+  // of sentences from source(s) and target sides, e.g.
+  // "src1 \t trg1 \n src2 \t trg2" -> ["src1 \n src2", "trg1 \n trg2"]
+  std::vector<std::string> convertTsvToLists(const std::string& inputText, size_t numFields) {
+    std::vector<std::string> outputFields(numFields);
+
+    std::string line;
+    std::vector<std::string> lineFields(numFields);
+    std::istringstream inputStream(inputText);
+    bool first = true;
+    while(std::getline(inputStream, line)) {
+      utils::splitTsv(line, lineFields, numFields);
+      for(size_t i = 0; i < numFields; ++i) {
+        if(!first)
+          outputFields[i] += "\n";  // join sentences with a new line sign
+        outputFields[i] += lineFields[i];
+      }
+      if(first)
+        first = false;
+    }
+
+    return outputFields;
+  }
+  
   void initScorers() {
     // get device IDs
     auto devices = Config::getDevices(options_);
@@ -306,10 +378,7 @@ private:
       graph->setDefaultElementType(
           typeFromString(precison[0]));  // only use first type, used for parameter type in graph
       graph->setDevice(device);
-      graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
-      if(device.type == DeviceType::cpu) {
-        graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
-      }
+      graph->getBackend()->configureDevice(options_);
       graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
       graphs_.push_back(graph);
 

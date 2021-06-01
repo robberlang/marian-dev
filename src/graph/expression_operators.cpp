@@ -4,9 +4,10 @@
 #include "graph/node_operators.h"
 #include "graph/node_operators_binary.h"
 #include "graph/node_operators_unary.h"
+#include "graph/node_operators_tuple.h"
 
 #include "graph/auto_tuner.h"
-#include "tensors/cpu/int16.h"
+#include "tensors/cpu/intgemm_interface.h"
 #include "tensors/cpu/fbgemm/expanded_gemm.h"
 
 #if USE_FBGEMM
@@ -23,6 +24,16 @@ Expr debug(Expr a, const std::string& message) {
 Expr checkpoint(Expr a) {
   a->markCheckpoint();
   return a;
+}
+
+Expr lambda(const std::vector<Expr>& nodes, Shape shape, Type type, 
+            LambdaNodeFunctor fwd) {
+  return Expression<LambdaNodeOp>(nodes, shape, type, fwd);
+}
+
+Expr lambda(const std::vector<Expr>& nodes, Shape shape, Type type, 
+            LambdaNodeFunctor fwd, LambdaNodeFunctor bwd) {
+  return Expression<LambdaNodeOp>(nodes, shape, type, fwd, bwd);
 }
 
 // logistic function. Note: scipy name is expit()
@@ -55,6 +66,10 @@ Expr log(Expr a) {
 
 Expr exp(Expr a) {
   return Expression<ExpNodeOp>(a);
+};
+
+Expr sin(Expr a) {
+  return Expression<SinNodeOp>(a);
 };
 
 Expr swish(Expr a) {
@@ -118,12 +133,52 @@ Expr logaddexp(Expr a, Expr b) {
   return Expression<LogAddExpNodeOp>(a, b);
 }
 
+Expr2 topk(Expr a, int k, int axis, bool descending) {
+  // only supports topk along last dimension, hence transpose if required
+  a = swapAxes(a, axis, -1);                              // non-op if axes are the same
+  auto topkVal = Expression<TopKNodeOp>(a, k, -1, descending); // axis=-1 is OK now as we swapped
+  auto topkIdx = std::dynamic_pointer_cast<TopKNodeOp>(topkVal)->tupleView(); // get a view on the top-k values
+  return std::make_tuple(swapAxes(topkVal, axis, -1), swapAxes(topkIdx, axis, -1)); // non-op if axes are the same
+}
+
+Expr2 argmax(Expr a, int axis) {
+  return topk(a, 1, axis, /*descending=*/true);
+}
+
+Expr2 argmin(Expr a, int axis) {
+  return topk(a, 1, axis, /*descending=*/false);
+}
+
 Expr maximum(Expr a, Expr b) {
   return Expression<MaximumNodeOp>(a, b);
 }
 
+// @TODO: implement version without constant
+Expr maximum(float a, Expr b) {
+  auto aExpr = b->graph()->constant({}, inits::fromValue(a));
+  return Expression<MaximumNodeOp>(aExpr, b);
+}
+
+Expr maximum(Expr a, float b) {
+  return maximum(b, a);
+}
+
 Expr minimum(Expr a, Expr b) {
   return Expression<MinimumNodeOp>(a, b);
+}
+
+// @TODO: implement version without constant
+Expr minimum(float a, Expr b) {
+  auto aExpr = b->graph()->constant({}, inits::fromValue(a));
+  return Expression<MinimumNodeOp>(aExpr, b);
+}
+
+Expr minimum(Expr a, float b) {
+  return minimum(b, a);
+}
+
+Expr abs(Expr a) {
+  return Expression<AbsNodeOp>(a);
 }
 
 Expr lt(Expr a, Expr b) { return Expression<CmpNodeOp>(a, b, -1, false); }
@@ -419,14 +474,22 @@ Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
   // Currently only true when command line options
   // --optimize --cpu-thread=N with N > 0 are set.
   if(device == DeviceType::cpu) {
-    if(isFloat(aElementType) && isFloat(bElementType)) {
-      if(a->graph()->getBackend()->isOptimized()) {
-        // dotInt16 computes A * B.T, hence the transpose for B to get A * B
-        // if transA = false and transB = false.
-
-        return cpu::int16::dot(
-          cpu::int16::quantize(transA ? transpose(a) : a, clipValue),
-          cpu::int16::quantize(transB ? b : transpose(b), clipValue),
+    if(isFloat(aElementType) && (isFloat(bElementType) || isIntgemm(bElementType))) {
+      if(a->graph()->getBackend()->isInt8() || matchType<intgemm8>(bElementType)) {
+        bool shiftedAll = a->graph()->getBackend()->isShiftedAll(); //@TODO
+        return cpu::integer::dot<Type::int8>(
+          a,
+          b,
+          transA,
+          transB,
+          scale,
+          shiftedAll);
+      } else if(a->graph()->getBackend()->isInt16() || matchType<intgemm16>(bElementType)) {
+        return cpu::integer::dot<Type::int16>(
+          a,
+          b,
+          transA,
+          transB,
           scale);
       } else {
         return Expression<DotNodeOp>(
@@ -495,14 +558,27 @@ Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
   Type bElementType = b->value_type();
 
   if(device == DeviceType::cpu) {
-    if(isFloat(aElementType) && isFloat(bElementType)) {
-      if(a->graph()->getBackend()->isOptimized()) {
-        // cpu int16 version
-        return cpu::int16::affine(
-          cpu::int16::quantize(transA ? transpose(a) : a, clipValue),
-          cpu::int16::quantize(transB ? b : transpose(b), clipValue),
+    if(isFloat(aElementType) && (isFloat(bElementType) || isIntgemm(bElementType))) {
+      if(a->graph()->getBackend()->isInt8()  || matchType<intgemm8>(bElementType) ) {
+        bool shiftedBias = a->graph()->getBackend()->isShifted();
+        return cpu::integer::affine<Type::int8>(
+          a,
+          b,
           bias,
-          scale);
+          transA,
+          transB,
+          scale,
+          clipValue,
+          shiftedBias);
+      } else if(a->graph()->getBackend()->isInt16()  || matchType<intgemm16>(bElementType) ) {
+        return cpu::integer::affine<Type::int16>(
+          a,
+          b,
+          bias,
+          transA,
+          transB,
+          scale,
+          clipValue);
       } else {
         return affineDefault(a, b, bias, transA, transB, scale);
       }
@@ -608,8 +684,8 @@ Expr cast(Expr a, Type type) {
   }
 }
 
-Expr cross_entropy(Expr logits, Expr indices) {
-  return Expression<CrossEntropyNodeOp>(logits, indices);
+Expr cross_entropy(Expr logits, Expr indices, float labelSmoothingAlpha, Type outputType) {
+  return Expression<CrossEntropyNodeOp>(logits, indices, labelSmoothingAlpha, outputType);
 }
 
 // Unlikelihood loss based on https://arxiv.org/abs/1908.04319

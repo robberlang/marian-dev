@@ -18,7 +18,8 @@ public:
   virtual void Write(long id, const std::string& message);
   virtual void Write(long id,
                      float score,
-                     const data::SoftAlignment& align = {});
+                     const data::SoftAlignment& align = {},
+                     const std::vector<float>& wordScores = {});
 
 protected:
   long nextId_{0};
@@ -34,11 +35,15 @@ protected:
   std::string getAlignment(const data::SoftAlignment& align);
 
   float getAlignmentThreshold(const std::string& str) {
+  #if WITHOUT_EXCEPTIONS
+      return str.size() == 0 ? 0.f : std::max(std::stof(str), 0.f);
+  #else
     try {
       return std::max(std::stof(str), 0.f);
     } catch(...) {
       return 0.f;
     }
+  #endif
   }
 };
 
@@ -51,7 +56,8 @@ public:
 
   virtual void Write(long id,
                      float score,
-                     const data::SoftAlignment& align = {}) override;
+                     const data::SoftAlignment& align = {},
+                     const std::vector<float>& wordScores = {}) override;
 
 private:
   std::string nBestList_;
@@ -63,6 +69,7 @@ private:
   std::string addToNBest(const std::string nbest,
                          const std::string feature,
                          float score,
-                         const data::SoftAlignment& align = {});
+                         const data::SoftAlignment& align = {},
+                         const std::vector<float>& wordScores = {});
 };
 }  // namespace marian
