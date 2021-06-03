@@ -169,12 +169,18 @@ if(CUDA_FOUND)
     endif(COMPILE_CUDA_SM80)
 
     # install nccl in ${CMAKE_BINARY_DIR}/local similar to /usr/local linux installation
+    # Using $(MAKE) instead of $CMAKE_MAKE_PROGRAM in order to make parallelization in NCCL compilation work with make -j16. 
+    # Apparently this does not get properly propagated otherwise and builts with only a single thread/process.
     ExternalProject_Add(nccl_install
       SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nccl
       BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nccl
       CONFIGURE_COMMAND ""
       BUILD_COMMAND
-        ${CMAKE_MAKE_PROGRAM} -f ${CMAKE_CURRENT_SOURCE_DIR}/nccl/Makefile src.build
+        # Note: $(MAKE) here causes CMake cache generation via Ninja failing (Windows build with
+        # CMake only) because Ninja complains about unescaped $ signs. This happens only if
+        # COMPILE_CUDA=on and because of that, USE_NCCL=off is used in CMakeSettings.json for now.
+        # @TODO: find proper escaping that works for MSVC builds.
+        "\$(MAKE)" -f ${CMAKE_CURRENT_SOURCE_DIR}/nccl/Makefile src.build
         BUILDDIR=${CMAKE_BINARY_DIR}/local CUDA_HOME=${CUDA_TOOLKIT_ROOT_DIR}
         CUDA8_GENCODE=${GENCODE} CXX=${CMAKE_CXX_COMPILER}
       INSTALL_COMMAND "")
