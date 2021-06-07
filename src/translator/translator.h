@@ -306,7 +306,6 @@ private:
       auto precison = options_->get<std::vector<std::string>>("precision", {"float32"});
       graph->setDefaultElementType(
           typeFromString(precison[0]));  // only use first type, used for parameter type in graph
-      }
       graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
       graphs_.push_back(graph);
 
@@ -324,6 +323,7 @@ private:
       graph->forward();
     }
   }
+
   // Converts a multi-line input with tab-separated source(s) and target sentences into separate lists
   // of sentences from source(s) and target sides, e.g.
   // "src1 \t trg1 \n src2 \t trg2" -> ["src1 \n src2", "trg1 \n trg2"]

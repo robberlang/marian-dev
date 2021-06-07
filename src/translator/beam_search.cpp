@@ -432,7 +432,13 @@ Histories BeamSearch::search(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> 
           //  LOG(info, "prevWords[{},{}]={} -> {}", t/numFactorGroups, factorGroup,
           //      factoredVocab ? factoredVocab->word2string(prevWords[kk]) : (*batch->back()->vocab())[prevWords[kk]],
           //      prevScores[kk]);
-          states[i] = scorers_[i]->step(graph, states[i], hypIndices, prevWords, batchIndices, (int)maxBeamSize);
+          states[i] = scorers_[i]->step(graph,
+                                        states[i],
+                                        hypIndices,
+                                        prevWords,
+                                        batchIndices,
+                                        (int)maxBeamSize,
+                                        getAlignment_);
           if (numFactorGroups == 1) // @TODO: this branch can go away
             logProbs = states[i]->getLogProbs().getLogits(); // [maxBeamSize, 1, currentDimBatch, dimVocab]
           else
@@ -504,7 +510,7 @@ Histories BeamSearch::search(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> 
     // remove all hyps that end in EOS
     // The position of a hyp in the beam may change.
     // in/out = shifts the batch index map if a beam gets fully purged
-    const auto purgedNewBeams = purgeBeams(beams, /*in/out=*/batchIdxMap);
+    const auto purgedNewBeams = purgeBeams(beams, histories, /*in/out=*/batchIdxMap);
 
     // add updated search space (beams) to our return value
     bool maxLengthReached = false;
