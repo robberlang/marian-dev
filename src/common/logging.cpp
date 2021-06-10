@@ -83,10 +83,8 @@ void createLoggers(const marian::Config* config) {
   }
 
   bool quiet = config && config->get<bool>("quiet");
-  Logger general{
-      createStderrLogger("general", "[%Y-%m-%d %T.%e] [%t] [%l] %v", generalLogs, quiet)};
-  Logger valid{
-      createStderrLogger("valid", "[%Y-%m-%d %T.%e] [%t] [%l] [valid] %v", validLogs, quiet)};
+  Logger general{createStderrLogger("general", "[%Y-%m-%d %T.%e] [%t] [%l] %v", generalLogs, quiet)};
+  Logger valid{createStderrLogger("valid", "[%Y-%m-%d %T.%e] [%t] [%l] [valid] %v", validLogs, quiet)};
 
   if(config && config->has("log-level")) {
     std::string loglevel = config->get<std::string>("log-level");

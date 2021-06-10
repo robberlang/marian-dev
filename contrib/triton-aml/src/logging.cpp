@@ -1,7 +1,6 @@
 #include "logging.h"
 #include "common/config.h"
-#include "spdlog/sinks/stdout_sinks.h"
-#include "spdlog/sinks/basic_file_sink.h"
+#include "spdlog/sinks/null_sink.h"
 #include "3rd_party/ExceptionWithCallStack.h"
 #include <time.h>
 #include <stdlib.h>
@@ -27,11 +26,12 @@ std::shared_ptr<spdlog::logger> createStderrLogger(const std::string& name,
                                                    bool quiet) {
   std::vector<spdlog::sink_ptr> sinks;
 
+  auto stderr_sink = spdlog::sinks::stderr_sink_mt::instance();
   if(!quiet)
-    sinks.push_back(std::make_shared<spdlog::sinks::stderr_sink_mt>());
+    sinks.push_back(stderr_sink);
 
   for(auto&& file : files) {
-    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_st>(file, true);
+    auto file_sink = std::make_shared<spdlog::sinks::simple_file_sink_st>(file, true);
     sinks.push_back(file_sink);
   }
 
@@ -86,10 +86,8 @@ void createLoggers(const marian::Config* config) {
   }
 
   bool quiet = config && config->get<bool>("quiet");
-  Logger general{
-      createStderrLogger("general", "[%Y-%m-%d %T.%e] [%t] [%l] %v", generalLogs, quiet)};
-  Logger valid{
-      createStderrLogger("valid", "[%Y-%m-%d %T.%e] [%t] [%l] [valid] %v", validLogs, quiet)};
+  Logger general{createStderrLogger("general", "[%Y-%m-%d %T] %v", generalLogs, quiet)};
+  Logger valid{createStderrLogger("valid", "[%Y-%m-%d %T] [valid] %v", validLogs, quiet)};
 
   if(config && config->has("log-level")) {
     std::string loglevel = config->get<std::string>("log-level");
