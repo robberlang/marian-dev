@@ -216,9 +216,8 @@ private:
 
   size_t numDevices_;
 
-#if MMAP
-  Ptr<std::vector<mio::mmap_source>> mmaps_;
-#endif
+  Ptr<std::vector<mio::mmap_source>> model_mmaps_;       // map
+  Ptr<std::vector<std::vector<io::Item>>> model_items_;  // non-mmap
 
 public:
   virtual ~TranslateService() {}
@@ -227,12 +226,9 @@ public:
       : options_(New<Options>(other.options_->clone())),
         srcVocabs_(other.srcVocabs_),
         trgVocab_(other.trgVocab_),
-        shortlistGenerator_(other.shortlistGenerator_)
-#if MMAP
-        ,
-        mmaps_(other.mmaps_)
-#endif
-  {
+        shortlistGenerator_(other.shortlistGenerator_),
+        model_mmaps_(other.model_mmaps_),
+        model_items_(other.model_items_) {
     initScorers();
   }
 
@@ -267,16 +263,21 @@ public:
             options_, srcVocabs_.front(), trgVocab_, 0, 1, vocabPaths.front() == vocabPaths.back());
     }
 
-#if MMAP
-    mmaps_ = New<std::vector<mio::mmap_source>>();
     auto models = options->get<std::vector<std::string>>("models");
-    for(auto model : models) {
-      marian::filesystem::Path modelPath(model);
-      ABORT_IF(modelPath.extension() != marian::filesystem::Path(".bin"),
-               "Non-binarized models cannot be mmapped");
-      mmaps_->push_back(std::move(mio::mmap_source(model)));
+    if(options_->get<bool>("model-mmap", false)) {
+      model_mmaps_ = New<std::vector<mio::mmap_source>>();
+      for(auto model : models) {
+        ABORT_IF(!io::isBin(model), "Non-binarized models cannot be mmapped");
+        model_mmaps_->push_back(mio::mmap_source(model));
+      }
+    } else {
+      model_items_ = New<std::vector<std::vector<io::Item>>>();
+      for(auto model : models) {
+        auto items = io::loadItems(model);
+        model_items_->push_back(std::move(items));
+      }
     }
-#endif
+
     initScorers();
   }
 
@@ -368,30 +369,34 @@ private:
     // get device IDs
     auto devices = Config::getDevices(options_);
     numDevices_ = devices.size();
+#if USE_PTHREADS
     threadPool_ = std::make_unique<ThreadPool>(numDevices_, numDevices_);
+#endif
 
     // initialize scorers
     for(auto device : devices) {
       auto graph = New<ExpressionGraph>(true);
 
-      auto precison = options_->get<std::vector<std::string>>("precision", {"float32"});
-      graph->setDefaultElementType(
-          typeFromString(precison[0]));  // only use first type, used for parameter type in graph
+      auto prec = options_->get<std::vector<std::string>>("precision", {"float32"});
+      graph->setDefaultElementType(typeFromString(prec[0]));
       graph->setDevice(device);
       graph->getBackend()->configureDevice(options_);
       graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
       graphs_.push_back(graph);
 
-#if MMAP
-      auto scorers = createScorers(options_, *mmaps_);
-#else
-      auto scorers = createScorers(options_);
-#endif
+      std::vector<Ptr<Scorer>> scorers;
+      if(options_->get<bool>("model-mmap", false)) {
+        scorers = createScorers(options_, *model_mmaps_);
+      } else {
+        scorers = createScorers(options_, *model_items_);
+      }
+
       for(auto scorer : scorers) {
         scorer->init(graph);
         if(shortlistGenerator_)
           scorer->setShortlistGenerator(shortlistGenerator_);
       }
+
       scorers_.push_back(scorers);
       graph->forward();
     }
