@@ -24,8 +24,9 @@ int main(int argc, char **argv) {
 
   auto &translate = server.endpoint["^/translate/?$"];
 
-  translate.on_message = [&task, quiet, beamSize, &inputFormat](Ptr<WSServer::Connection> connection,
-                                                         Ptr<WSServer::Message> message) {
+  translate.on_message = [&task, quiet, beamSize, &inputFormat](
+                             Ptr<WSServer::Connection> connection,
+                             Ptr<WSServer::InMessage> message) {
     // Get input text
     auto inputText = message->string();
     auto sendStream = std::make_shared<WSServer::OutMessage>();
