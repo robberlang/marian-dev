@@ -70,10 +70,9 @@ std::string ScoreCollector::getAlignment(const data::SoftAlignment& align) {
   if(alignment_ == "soft") {
     return data::SoftAlignToString(align);
   } else if(alignment_ == "hard") {
-    return data::ConvertSoftAlignToHardAlign(align, 1.f).toString();
+    return data::ConvertSoftAlignToHardAlign(align).toString();
   } else if(alignmentThreshold_ > 0.f) {
-    return data::ConvertSoftAlignToHardAlign(align, alignmentThreshold_)
-        .toString();
+    return data::ConvertSoftAlignToHardAlign(align, alignmentThreshold_).toString();
   } else {
     ABORT("Unrecognized word alignment type");
   }

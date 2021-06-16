@@ -735,6 +735,11 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
   cli.add<std::string>("--summary",
       "Only print total cost, possible values: cross-entropy (ce-mean), ce-mean-words, ce-sum, perplexity")
       ->implicit_val("cross-entropy");
+  cli.add<std::string>("--input-format",
+      "Input format. Possible values: plaintext, html, xliff1")
+    ->implicit_val("plaintext");
+  cli.add<bool>("--entitize-tags",
+      "Entitize tags. Assumes that training was done on entitized tags");
   cli.add<std::string>("--alignment",
      "Return word alignment. Possible values: 0.0-1.0, hard, soft")
     ->implicit_val("hard");

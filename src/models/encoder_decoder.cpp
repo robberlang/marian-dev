@@ -218,7 +218,13 @@ Ptr<DecoderState> EncoderDecoder::stepAll(Ptr<ExpressionGraph> graph,
 
   // Fill state with embeddings from batch (ground truth)
   decoders_[0]->embeddingsFromBatch(graph, state, batch);
-  auto nextState = decoders_[0]->step(graph, state);
+  auto nextState = decoders_[0]->step(
+      graph,
+      state,
+      options_->hasAndNotEmpty("alignment")
+          || (ConvertInputFormat(options_->get<std::string>("input-format", ""))
+                  != InputFormat::PLAINTEXT
+              && !options_->get<bool>("entitize-tags", false)));
   nextState->setTargetMask(state->getTargetMask());
   nextState->setTargetWords(state->getTargetWords());
 
