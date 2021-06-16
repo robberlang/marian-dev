@@ -735,6 +735,9 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
   cli.add<std::string>("--summary",
       "Only print total cost, possible values: cross-entropy (ce-mean), ce-mean-words, ce-sum, perplexity")
       ->implicit_val("cross-entropy");
+  cli.add<std::string>("--alignment",
+     "Return word alignment. Possible values: 0.0-1.0, hard, soft")
+    ->implicit_val("hard");
   cli.add<bool>("--word-scores",
       "Print word-level scores. One score per subword unit, not normalized even if --normalize");
 
