@@ -757,6 +757,9 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
      ->implicit_val("hard"),
   cli.add<bool>("--word-scores",
       "Print word-level scores. One score per subword unit, not normalized even if --normalize");
+  cli.add<bool>("--translations",
+      "Print translations. If HTML/XLIFF tags exist in the source, they are inserted into the "
+      "translation according to the word alignment.");
 
   addSuboptionsInputLength(cli);
   addSuboptionsTSV(cli);

@@ -110,7 +110,9 @@ public:
     // @TODO: make normalize here a float and pass into loss to compute the same way as in decoding
     bool normalize = options_->get<bool>("normalize");
     bool wordLevel = options_->get<bool>("word-scores", false);
-
+    bool printTranslations = options_->get<bool>("translations", false);
+    InputFormat inputFormat = ConvertInputFormat(options_->get<std::string>("input-format", ""));
+    bool entitizeTags = options_->get<bool>("entitize-tags");
     ABORT_IF(wordLevel && summarize, "Word-level scores can not be printed if --summarize is enabled");
 
     float sumLoss = 0;
@@ -160,7 +162,7 @@ public:
 
           // soft alignments for each sentence in the batch
           std::vector<data::SoftAlignment> aligns(batch->size()); // @TODO: do this resize inside getAlignmentsForBatch()
-          if(!alignment.empty()) {
+          if(!alignment.empty() || printTranslations) {
             getAlignmentsForBatch(builder->getAlignment(), batch, aligns);
           }
 
@@ -173,10 +175,17 @@ public:
 
           if(!summarize) {
             if(!wordLevel) {
-              for(size_t i = 0; i < batch->size(); ++i)
-                output->Write((long)batch->getSentenceIds()[i],
-                              -1.f * sentScores[i],  // report logProb while score is CE, hence negate
-                              aligns[i]);
+              for(size_t i = 0; i < batch->size(); ++i) {
+                std::string translation;
+                if(printTranslations)
+                  translation = getTargetWithTagsPlaced(batch, aligns, i, inputFormat, entitizeTags);
+                output->Write(
+                    (long)batch->getSentenceIds()[i],
+                    -1.f * sentScores[i],  // report logProb while score is CE, hence negate
+                    (!alignment.empty() ? aligns[i] : data::SoftAlignment()),
+                    std::vector<float>(),
+                    translation);
+              }
             } else {
               std::vector<float> wordScores;
               float sentScore{0.f};
@@ -196,7 +205,14 @@ public:
                   // TODO: return length-normalized scores in both marian-scorer and marian-decoder
                   sentScore /= sentLengths[i];
 
-                output->Write((long)batch->getSentenceIds()[i], sentScore, aligns[i], wordScores);
+                std::string translation;
+                if(printTranslations)
+                  translation = getTargetWithTagsPlaced(batch, aligns, i, inputFormat, entitizeTags);
+                output->Write((long)batch->getSentenceIds()[i],
+                              sentScore,
+                              (!alignment.empty() ? aligns[i]: data::SoftAlignment()),
+                              wordScores,
+                              translation);
 
                 wordScores.clear();
                 sentScore = 0.f;
@@ -274,6 +290,33 @@ private:
         }
       }
     }
+  }
+
+  std::string getTargetWithTagsPlaced(const Ptr<data::CorpusBatch> batch,
+                                      const std::vector<data::SoftAlignment>& aligns,
+                                      size_t no,
+                                      InputFormat inputFormat,
+                                      bool entitizeTags) {
+    auto subBatch = batch->back();
+
+    size_t size = subBatch->batchSize();
+    size_t width = subBatch->batchWidth();
+    auto vocab = subBatch->vocab();
+
+    Words words;  // fill
+    for(size_t i = 0; i < width; ++i) {
+      Word w = subBatch->data()[i * size + no];
+      if(w == vocab->getEosId())
+        break;
+      words.push_back(std::move(w));
+    }
+    Words wordsWithTags = data::reinsertTags(words,
+                                             aligns[no],
+                                             batch->front()->getSentenceTags()[no],
+                                             batch->front()->getSentenceSpaceSymbolStarts()[no],
+                                             subBatch->getSentenceSpaceSymbolStarts()[no],
+                                             entitizeTags);
+    return vocab->decode(wordsWithTags, true, inputFormat, entitizeTags);
   }
 };
 

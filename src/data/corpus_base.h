@@ -117,6 +117,10 @@ private:
   Ptr<const Vocab> vocab_;
   // ... TODO: add the length information (remember it)
 
+  std::vector<size_t> sentenceWordCounts_;
+  std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags_;
+  std::vector<bool> sentenceSpaceSymbolStarts_;
+
 public:
   /**
    * @brief Creates an empty subbatch of specified size.
@@ -171,6 +175,25 @@ public:
    * @brief The total number of words in the batch (not counting masked-out words).
    */
   size_t batchWords() const { return words_; }
+
+  const std::vector<size_t>& getSentenceWordCounts() const { return sentenceWordCounts_; }
+  void setSentenceWordCounts(const std::vector<size_t>& wordCounts) {
+    sentenceWordCounts_ = wordCounts;
+  }
+
+  const std::vector<std::vector<std::pair<Word, size_t>>>& getSentenceTags() const {
+    return sentenceTags_;
+  }
+  void setSentenceTags(const std::vector<std::vector<std::pair<Word, size_t>>>& tags) {
+    sentenceTags_ = tags;
+  }
+
+  const std::vector<bool>& getSentenceSpaceSymbolStarts() const {
+    return sentenceSpaceSymbolStarts_;
+  }
+  void setSentenceSpaceSymbolStarts(const std::vector<bool>& sentenceSpaceSymbolStarts) {
+    sentenceSpaceSymbolStarts_ = sentenceSpaceSymbolStarts;
+  }
 
   /**
    * @brief Splits the stream into sub-batches of equal size (except for last).

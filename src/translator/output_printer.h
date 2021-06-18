@@ -40,8 +40,8 @@ public:
       bool translationSpaceSymbolStart = vocab_->sentenceStartsWithSpaceSymbolWord(words);
 
       auto align = getSoftAlignment(hypo);
-      Words wordsWithTags
-          = reinsertTags(words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart);
+      Words wordsWithTags = data::reinsertTags(
+          words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart, entitizeTags_);
 
       if(reverse_)
         std::reverse(wordsWithTags.begin(), wordsWithTags.end());
@@ -82,8 +82,8 @@ public:
 
     const auto& hypo = std::get<1>(result);
     auto align = getSoftAlignment(hypo);
-    Words wordsWithTags
-        = reinsertTags(words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart);
+    Words wordsWithTags = data::reinsertTags(
+        words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart, entitizeTags_);
 
     if(reverse_)
       std::reverse(wordsWithTags.begin(), wordsWithTags.end());
