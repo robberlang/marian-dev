@@ -513,17 +513,12 @@ Histories BeamSearch::search(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> 
     const auto purgedNewBeams = purgeBeams(beams, histories, /*in/out=*/batchIdxMap);
 
     // add updated search space (beams) to our return value
-    bool maxLengthReached = false;
     for(int batchIdx = 0; batchIdx < origDimBatch; ++batchIdx) {
       // if this batch entry has surviving hyps then add them to the traceback grid
       if(!beams[batchIdx].empty()) { // if the beam is not empty expand the history object associated with the beam
-        if (histories[batchIdx]->size() >= options_->get<float>("max-length-factor") * batch->front()->batchWidth())
-          maxLengthReached = true;
-        histories[batchIdx]->add(beams[batchIdx], trgEosId, purgedNewBeams[batchIdx].empty() || maxLengthReached);
+        histories[batchIdx]->add(beams[batchIdx], trgEosId, purgedNewBeams[batchIdx].empty());
       }
     }
-    if (maxLengthReached) // early exit if max length limit was reached
-      break;
 
     // this is the search space for the next output time step
     beams = purgedNewBeams;
