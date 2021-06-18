@@ -277,9 +277,9 @@ Histories BeamSearch::search(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> 
   Histories histories(origDimBatch);
   for(int i = 0; i < origDimBatch; ++i) {
     size_t sentId = batch->getSentenceIds()[i];
-    size_t wordCount = batch->getSentenceWordCounts()[i];
-    const auto& sentTags = batch->getSentenceTags()[i];
-    bool sentSpaceSymbolStart = batch->getSentenceSpaceSymbolStarts()[i];
+    size_t wordCount = batch->front()->getSentenceWordCounts()[i];
+    const auto& sentTags = batch->front()->getSentenceTags()[i];
+    bool sentSpaceSymbolStart = batch->front()->getSentenceSpaceSymbolStarts()[i];
     histories[i] = New<History>(sentId,
                                 wordCount,
                                 sentTags,

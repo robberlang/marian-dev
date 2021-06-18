@@ -40,8 +40,8 @@ public:
       bool translationSpaceSymbolStart = vocab_->sentenceStartsWithSpaceSymbolWord(words);
 
       auto align = getSoftAlignment(hypo);
-      Words wordsWithTags
-          = reinsertTags(words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart);
+      Words wordsWithTags = data::reinsertTags(
+          words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart, entitizeTags_);
 
       if(reverse_)
         std::reverse(wordsWithTags.begin(), wordsWithTags.end());
@@ -82,8 +82,8 @@ public:
 
     const auto& hypo = std::get<1>(result);
     auto align = getSoftAlignment(hypo);
-    Words wordsWithTags
-        = reinsertTags(words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart);
+    Words wordsWithTags = data::reinsertTags(
+        words, align, lineTags, lineSpaceSymbolStart, translationSpaceSymbolStart, entitizeTags_);
 
     if(reverse_)
       std::reverse(wordsWithTags.begin(), wordsWithTags.end());
@@ -121,11 +121,6 @@ private:
   std::string getAlignment(const data::SoftAlignment& align);
   // Get word-level scores
   std::string getWordScores(const Hypothesis::PtrType& hyp);
-  Words reinsertTags(const Words& words,
-                     const data::SoftAlignment& align,
-                     const std::vector<std::pair<Word, size_t>>& lineTags,
-                     bool lineSpaceSymbolStart,
-                     bool translationSpaceSymbolStart);
 
   float getAlignmentThreshold(const std::string& str) {
     try {

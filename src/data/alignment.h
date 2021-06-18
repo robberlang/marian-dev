@@ -2,6 +2,9 @@
 
 #include <sstream>
 #include <vector>
+#include <utility>
+
+#include "data/types.h"
 
 namespace marian {
 namespace data {
@@ -64,6 +67,12 @@ WordAlignment ConvertSoftAlignToHardAlign(const SoftAlignment& alignSoft,
                                           bool translationSpaceSymbolStart = false);
 
 std::string SoftAlignToString(const SoftAlignment& align);
+
+Words reinsertTags(const Words& words,
+                   const SoftAlignment& align,
+                   const std::vector<std::pair<Word, size_t>>& lineTags,
+                   bool lineSpaceSymbolStart,
+                   bool translationSpaceSymbolStart, bool entitizeTags);
 
 }  // namespace data
 }  // namespace marian

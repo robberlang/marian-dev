@@ -281,16 +281,16 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
     subBatches.emplace_back(New<SubBatch>(batchSize, maxDims[j], vocabs_[j]));
   }
 
-  std::vector<size_t> sentenceWordCounts;
-  std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags;
-  std::vector<bool> sentenceSpaceSymbolStarts;
+  std::vector<std::vector<size_t>> sentenceWordCounts(maxDims.size());
+  std::vector<std::vector<std::vector<std::pair<Word, size_t>>>> sentenceTags(maxDims.size());
+  std::vector<std::vector<bool>> sentenceSpaceSymbolStarts(maxDims.size());
   std::vector<size_t> words(maxDims.size(), 0);
   for(size_t b = 0; b < batchSize; ++b) {                    // loop over batch entries
-    sentenceWordCounts.emplace_back(0);
-    sentenceTags.emplace_back();
-    sentenceSpaceSymbolStarts.emplace_back(false);
-    bool firstWordMet = false;
     for(size_t j = 0; j < maxDims.size(); ++j) {  // loop over streams
+      sentenceWordCounts[j].emplace_back(0);
+      sentenceTags[j].emplace_back();
+      sentenceSpaceSymbolStarts[j].emplace_back(false);
+      bool firstWordMet = false;
       auto subBatch = subBatches[j];
       for(size_t s = 0, t = 0; s < batchVector[b][j].size(); ++s) { // loop over word positions
         const auto& markupTag = batchVector[b][j][s].getMarkupTag();
@@ -300,29 +300,30 @@ CorpusBase::batch_ptr Corpus::toBatch(const std::vector<Sample>& batchVector) {
           subBatch->mask()[subBatch->locate(/*batchIdx=*/b, /*wordPos=*/t) /*t * batchSize + b*/]
               = 1.f;
           words[j]++;
-          ++sentenceWordCounts.back();
+          ++sentenceWordCounts[j].back();
           ++t;
           if(!firstWordMet) {
             firstWordMet = true;
             if(batchVector[b][j][s].isSpaceSymbol()) {
-              sentenceSpaceSymbolStarts.back() = true;
+              sentenceSpaceSymbolStarts[j].back() = true;
             }
           }
         } else {
-          sentenceTags.back().emplace_back(batchVector[b][j][s], t);
+          sentenceTags[j].back().emplace_back(batchVector[b][j][s], t);
         }
       }
     }
   }
 
-  for(size_t j = 0; j < maxDims.size(); ++j)
+  for(size_t j = 0; j < maxDims.size(); ++j) {
     subBatches[j]->setWords(words[j]);
+    subBatches[j]->setSentenceWordCounts(sentenceWordCounts[j]);
+    subBatches[j]->setSentenceTags(sentenceTags[j]);
+    subBatches[j]->setSentenceSpaceSymbolStarts(sentenceSpaceSymbolStarts[j]);
+  }
 
   auto batch = batch_ptr(new batch_type(subBatches));
   batch->setSentenceIds(sentenceIds);
-  batch->setSentenceWordCounts(sentenceWordCounts);
-  batch->setSentenceTags(sentenceTags);
-  batch->setSentenceSpaceSymbolStarts(sentenceSpaceSymbolStarts);
 
   // Add prepared word alignments and weights if they are available
   if(alignFileIdx_ > -1 && options_->get("guided-alignment", std::string("none")) != "none")

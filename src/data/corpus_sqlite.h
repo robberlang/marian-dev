@@ -89,45 +89,46 @@ public:
       subBatches.emplace_back(New<SubBatch>(batchSize, maxDims[j], vocabs_[j]));
     }
 
-    std::vector<size_t> sentenceWordCounts;
-    std::vector<std::vector<std::pair<Word, size_t>>> sentenceTags;
-    std::vector<bool> sentenceSpaceSymbolStarts;
+    std::vector<std::vector<size_t>> sentenceWordCounts(maxDims.size());
+    std::vector<std::vector<std::vector<std::pair<Word, size_t>>>> sentenceTags(maxDims.size());
+    std::vector<std::vector<bool>> sentenceSpaceSymbolStarts(maxDims.size());
     std::vector<size_t> words(maxDims.size(), 0);
     for(size_t i = 0; i < batchSize; ++i) {
-      sentenceWordCounts.emplace_back(0);
-      sentenceTags.emplace_back();
-      sentenceSpaceSymbolStarts.emplace_back(false);
-      bool firstWordMet = false;
       for(size_t j = 0; j < maxDims.size(); ++j) {
+        sentenceWordCounts[j].emplace_back(0);
+        sentenceTags[j].emplace_back();
+        sentenceSpaceSymbolStarts[j].emplace_back(false);
+        bool firstWordMet = false;
         for(size_t k = 0, l = 0; k < batchVector[i][j].size(); ++k) {
           const auto& markupTag = batchVector[i][j][k].getMarkupTag();
           if(!markupTag) {
             subBatches[j]->data()[l * batchSize + i] = batchVector[i][j][k];
             subBatches[j]->mask()[l * batchSize + i] = 1.f;
             words[j]++;
-            ++sentenceWordCounts.back();
+            ++sentenceWordCounts[j].back();
             ++l;
             if(!firstWordMet) {
               firstWordMet = true;
               if(batchVector[i][j][k].isSpaceSymbol()) {
-                sentenceSpaceSymbolStarts.back() = true;
+                sentenceSpaceSymbolStarts[j].back() = true;
               }
             }
           } else {
-            sentenceTags.back().emplace_back(batchVector[i][j][k], l);
+            sentenceTags[j].back().emplace_back(batchVector[i][j][k], l);
           }
         }
       }
     }
 
-    for(size_t j = 0; j < maxDims.size(); ++j)
+    for(size_t j = 0; j < maxDims.size(); ++j) {
       subBatches[j]->setWords(words[j]);
+      subBatches[j]->setSentenceWordCounts(sentenceWordCounts[j]);
+      subBatches[j]->setSentenceTags(sentenceTags[j]);
+      subBatches[j]->setSentenceSpaceSymbolStarts(sentenceSpaceSymbolStarts[j]);
+    }
 
     auto batch = batch_ptr(new batch_type(subBatches));
     batch->setSentenceIds(sentenceIds);
-    batch->setSentenceWordCounts(sentenceWordCounts);
-    batch->setSentenceTags(sentenceTags);
-    batch->setSentenceSpaceSymbolStarts(sentenceSpaceSymbolStarts);
 
     if(options_->has("guided-alignment") && alignFileIdx_)
       addAlignmentsToBatch(batch, batchVector);
