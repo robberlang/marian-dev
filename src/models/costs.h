@@ -212,6 +212,12 @@ public:
     model_->load(graph, name, markedReloaded);
   };
 
+  virtual void mmap(Ptr<ExpressionGraph> graph,
+                    const void* ptr,
+                    bool markedReloaded = true) override {
+    model_->mmap(graph, ptr, markedReloaded);
+  };
+
   virtual void save(Ptr<ExpressionGraph> graph,
                     const std::string& name,
                     bool saveTranslatorConfig = false) override {

@@ -24,6 +24,10 @@ public:
                     const std::string&,
                     bool markReloaded = true)
       = 0;
+  virtual void mmap(Ptr<ExpressionGraph>,
+                    const void*,
+                    bool markReloaded = true)
+      = 0;
   virtual void save(Ptr<ExpressionGraph>,
                     const std::string&,
                     bool saveTranslatorConfig = false)
@@ -45,6 +49,10 @@ public:
 
   virtual void load(Ptr<ExpressionGraph>,
                     const std::string&,
+                    bool markReloaded = true)
+      = 0;
+  virtual void mmap(Ptr<ExpressionGraph>,
+                    const void*,
                     bool markReloaded = true)
       = 0;
   virtual void save(Ptr<ExpressionGraph>,
