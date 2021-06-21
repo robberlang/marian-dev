@@ -18,16 +18,7 @@
 #include "translator/scorers.h"
 
 // currently for diagnostics only, will try to mmap files ending in *.bin suffix when enabled.
-// @TODO: add this as an actual feature.
-#ifdef CUDA_FOUND
-#define MMAP 0
-#else
-#define MMAP 1
-#endif
-
-#if MMAP
 #include "3rd_party/mio/mio.hpp"
-#endif
 
 namespace marian {
 
@@ -44,9 +35,7 @@ private:
 
   size_t numDevices_;
 
-#if MMAP
   std::vector<mio::mmap_source> mmaps_;
-#endif
 
 public:
   Translate(Ptr<Options> options)
@@ -75,15 +64,13 @@ public:
     scorers_.resize(numDevices_);
     graphs_.resize(numDevices_);
 
-#if MMAP
-    auto models = options->get<std::vector<std::string>>("models");
-    for(auto model : models) {
-      marian::filesystem::Path modelPath(model);
-      ABORT_IF(modelPath.extension() != marian::filesystem::Path(".bin"),
-              "Non-binarized models cannot be mmapped");
-      mmaps_.push_back(std::move(mio::mmap_source(model)));
+    if(options_->get<bool>("model-mmap", false)) {
+      auto models = options->get<std::vector<std::string>>("models");
+      for(auto model : models) {
+        ABORT_IF(!io::isBin(model), "Non-binarized models cannot be mmapped");
+        mmaps_.push_back(mio::mmap_source(model));
+      }
     }
-#endif
 
     size_t id = 0;
     for(auto device : devices) {
@@ -95,11 +82,12 @@ public:
         graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
         graphs_[id] = graph;
 
-#if MMAP
-        auto scorers = createScorers(options_, mmaps_);
-#else
-        auto scorers = createScorers(options_);
-#endif
+        std::vector<Ptr<Scorer>> scorers;
+        if(options_->get<bool>("model-mmap", false)) {
+          scorers = createScorers(options_, mmaps_);
+        } else {
+          scorers = createScorers(options_);
+        }
         for(auto scorer : scorers) {
           scorer->init(graph);
           if(shortlistGenerator_)
@@ -189,9 +177,7 @@ private:
 
   size_t numDevices_;
 
-#if MMAP
   Ptr<std::vector<mio::mmap_source>> mmaps_;
-#endif
 
 public:
   virtual ~TranslateService() {}
@@ -200,11 +186,8 @@ public:
       : options_(New<Options>(other.options_->clone())),
         srcVocabs_(other.srcVocabs_),
         trgVocab_(other.trgVocab_),
-        shortlistGenerator_(other.shortlistGenerator_)
-#if MMAP
-        ,
+        shortlistGenerator_(other.shortlistGenerator_),
         mmaps_(other.mmaps_)
-#endif
   {
     initScorers();
   }
@@ -232,16 +215,14 @@ public:
       shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
           options_, srcVocabs_.front(), trgVocab_, 0, 1, vocabPaths.front() == vocabPaths.back());
 
-#if MMAP
-    mmaps_ = New<std::vector<mio::mmap_source>>();
-    auto models = options->get<std::vector<std::string>>("models");
-    for(auto model : models) {
-      marian::filesystem::Path modelPath(model);
-      ABORT_IF(modelPath.extension() != marian::filesystem::Path(".bin"),
-               "Non-binarized models cannot be mmapped");
-      mmaps_->push_back(std::move(mio::mmap_source(model)));
+    if(options_->get<bool>("model-mmap", false)) {
+      mmaps_ = New<std::vector<mio::mmap_source>>();
+      auto models = options->get<std::vector<std::string>>("models");
+      for(auto model : models) {
+        ABORT_IF(!io::isBin(model), "Non-binarized models cannot be mmapped");
+        mmaps_->push_back(mio::mmap_source(model));
+      }
     }
-#endif
     initScorers();
   }
 
@@ -310,11 +291,12 @@ private:
       graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
       graphs_.push_back(graph);
 
-#if MMAP
-      auto scorers = createScorers(options_, *mmaps_);
-#else
-      auto scorers = createScorers(options_);
-#endif
+      std::vector<Ptr<Scorer>> scorers;
+      if(options_->get<bool>("model-mmap", false)) {
+        scorers = createScorers(options_, *mmaps_);
+      } else {
+        scorers = createScorers(options_);
+      }
       for(auto scorer : scorers) {
         scorer->init(graph);
         if(shortlistGenerator_)

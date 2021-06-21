@@ -180,7 +180,12 @@ void ConfigParser::addOptionsModel(cli::CLIWrapper& cli) {
         "Path prefix for pre-trained model to initialize model weights");
     }
   }
-
+#ifdef COMPILE_CPU
+  if(mode_ == cli::mode::translation || mode_ == cli::mode::scoring) {
+    cli.add<bool>("--model-mmap",
+      "Use memory-mapping when loading model (CPU only)");
+  }
+#endif
   cli.add<bool>("--ignore-model-config",
       "Ignore the model configuration saved in npz file");
   cli.add<std::string>("--type",
