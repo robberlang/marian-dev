@@ -272,10 +272,9 @@ public:
     }
   }
 
-private:
-  void getAlignmentsForBatch(const data::SoftAlignment& rawAligns,
-                             Ptr<data::CorpusBatch> batch,
-                             std::vector<data::SoftAlignment>& aligns) {
+  static void getAlignmentsForBatch(const data::SoftAlignment& rawAligns,
+                                    Ptr<data::CorpusBatch> batch,
+                                    std::vector<data::SoftAlignment>& aligns) {
     // Raw word alignments is a vector of N x L, where N is the number of
     // sentences in the batch and L is the length of the longest sentence in the
     // batch, and are organized as follows:
@@ -306,11 +305,11 @@ private:
     }
   }
 
-  std::string getTargetWithTagsPlaced(const Ptr<data::CorpusBatch> batch,
-                                      const std::vector<data::SoftAlignment>& aligns,
-                                      size_t no,
-                                      InputFormat inputFormat,
-                                      bool entitizeTags) {
+  static std::string getTargetWithTagsPlaced(const Ptr<data::CorpusBatch> batch,
+                                             const std::vector<data::SoftAlignment>& aligns,
+                                             size_t no,
+                                             InputFormat inputFormat,
+                                             bool entitizeTags) {
     auto subBatch = batch->back();
 
     size_t size = subBatch->batchSize();

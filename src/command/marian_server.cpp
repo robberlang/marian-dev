@@ -1,6 +1,6 @@
 #include "marian.h"
 #include "translator/beam_search.h"
-#include "translator/translator.h"
+#include "service/service.h"
 #include "common/timer.h"
 #include "common/utils.h"
 
@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
 
   // Initialize translation task
   auto options = parseOptions(argc, argv, cli::mode::server, true);
-  auto task = New<TranslateService<BeamSearch>>(options);
+  auto task = New<TranslateService<BeamSearch, Rescorer>>(options);
   auto quiet = options->get<bool>("quiet-translation");
 
   size_t beamSize = options->get<size_t>("beam-size");
@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
 
     // Translate
     timer::Timer timer;
-    auto outputText = task->run(inputText, beamSize, inputFormat);
+    auto outputText = task->translate(inputText, beamSize, inputFormat);
     LOG(info, "Best translation: {}", outputText);
     *sendStream << outputText << std::endl;
     if(!quiet)
