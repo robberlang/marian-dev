@@ -74,11 +74,13 @@ std::string const& ConfigParser::cmdLine() const {
 ConfigParser::ConfigParser(cli::mode mode)
   : cli_(config_,"Marian: Fast Neural Machine Translation in C++",
          "General options", "", 40),
-    mode_(mode == cli::mode::server ? cli::mode::translation : mode) {
+    mode_(mode) {
 
   addOptionsGeneral(cli_);
-  if (mode == cli::mode::server)
+  if(mode == cli::mode::server) {
+    mode_ = cli::mode::translation;
     addOptionsServer(cli_);
+  }
   addOptionsModel(cli_);
 
   // clang-format off
@@ -185,7 +187,7 @@ void ConfigParser::addOptionsModel(cli::CLIWrapper& cli) {
     }
   }
 #ifdef COMPILE_CPU
-  if(mode_ == cli::mode::translation) {
+  if(mode_ == cli::mode::translation || mode_ == cli::mode::scoring) {
     cli.add<bool>("--model-mmap",
       "Use memory-mapping when loading model (CPU only)");
   }

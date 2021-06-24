@@ -14,6 +14,9 @@
 #include "training/validator.h"
 #include "tensors/backend.h"
 
+// currently for diagnostics only, will try to mmap files ending in *.bin suffix when enabled.
+#include "3rd_party/mio/mio.hpp"
+
 namespace marian {
 
 using namespace data;
@@ -28,6 +31,10 @@ public:
 
   void load(Ptr<ExpressionGraph> graph, const std::string& modelFile) {
     builder_->load(graph, modelFile);
+  }
+
+  void mmap(Ptr<ExpressionGraph> graph, const void* ptr) {
+    builder_->mmap(graph, ptr);
   }
 
   Ptr<RationalLoss> build(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> batch) {
@@ -47,6 +54,7 @@ private:
   Ptr<CorpusBase> corpus_;
   std::vector<Ptr<ExpressionGraph>> graphs_;
   std::vector<Ptr<Model>> models_;
+  UPtr<mio::mmap_source> mmap_;
 
 public:
   Rescore(Ptr<Options> options) : options_(options) {
@@ -81,13 +89,21 @@ public:
 
     auto modelFile = options_->get<std::string>("model");
 
+    if(options_->get<bool>("model-mmap", false)) {
+      mmap_.reset(new mio::mmap_source(modelFile));
+      ABORT_IF(!mmap_->is_mapped(), "Memory mapping did not succeed");
+    }
     models_.resize(graphs_.size());
     ThreadPool pool(graphs_.size(), graphs_.size());
     for(size_t i = 0; i < graphs_.size(); ++i) {
       pool.enqueue(
           [=](size_t j) {
             models_[j] = New<Model>(options_);
-            models_[j]->load(graphs_[j], modelFile);
+            if(mmap_) {
+              models_[j]->mmap(graphs_[j], mmap_->data());
+            } else {
+              models_[j]->load(graphs_[j], modelFile);
+            }
           },
           i);
     }
@@ -258,10 +274,9 @@ public:
     }
   }
 
-private:
-  void getAlignmentsForBatch(const data::SoftAlignment& rawAligns,
-                             Ptr<data::CorpusBatch> batch,
-                             std::vector<data::SoftAlignment>& aligns) {
+  static void getAlignmentsForBatch(const data::SoftAlignment& rawAligns,
+                                    Ptr<data::CorpusBatch> batch,
+                                    std::vector<data::SoftAlignment>& aligns) {
     // Raw word alignments is a vector of N x L, where N is the number of
     // sentences in the batch and L is the length of the longest sentence in the
     // batch, and are organized as follows:
@@ -292,11 +307,11 @@ private:
     }
   }
 
-  std::string getTargetWithTagsPlaced(const Ptr<data::CorpusBatch> batch,
-                                      const std::vector<data::SoftAlignment>& aligns,
-                                      size_t no,
-                                      InputFormat inputFormat,
-                                      bool entitizeTags) {
+  static std::string getTargetWithTagsPlaced(const Ptr<data::CorpusBatch> batch,
+                                             const std::vector<data::SoftAlignment>& aligns,
+                                             size_t no,
+                                             InputFormat inputFormat,
+                                             bool entitizeTags) {
     auto subBatch = batch->back();
 
     size_t size = subBatch->batchSize();

@@ -361,6 +361,27 @@ Words reinsertTags(const Words& words,
           }
           translationTags.emplace_back(
               lineTag, unbalancedOpenTags.back().first, words.size(), -1 - words.size());
+        } else if(lineTag->second == maxSrcPos
+                  && translationTags[unbalancedOpenTags.back().first].lineTag_->second
+                         == maxSrcPos) {
+          // this is the case where the tag is at the end of the source
+          for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
+            translationTags[t].nests_.emplace_back(
+                unbalancedOpenTags.back().first, words.size() - 1, 1);
+            translationTags[t].tagPosition_.pos_ = words.size() - 1;
+            translationTags[t].tagPosition_.span_ = 1;
+          }
+          translationTags.emplace_back(
+              lineTag, unbalancedOpenTags.back().first, words.size() - 1, -1);
+        } else if(lineTag->second == 0) {
+          // this is the case where the tag is at the beginning of the source
+          for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
+            translationTags[t].nests_.emplace_back(unbalancedOpenTags.back().first, 0, 1);
+            translationTags[t].tagPosition_.pos_ = 0;
+            translationTags[t].tagPosition_.span_ = 1;
+          }
+          translationTags.emplace_back(
+              lineTag, unbalancedOpenTags.back().first, 0, -1);
         } else {
           auto wordAlign = hardAlignment.begin() + unbalancedOpenTags.back().second;
           if(wordAlign == hardAlignment.end()) {
@@ -607,15 +628,30 @@ Words reinsertTags(const Words& words,
   // the end of the segment
   if(!unbalancedOpenTags.empty()) {
     for(auto u = unbalancedOpenTags.rbegin(); u != unbalancedOpenTags.rend(); ++u) {
-      // if there are tags nested then have them remain nested
-      for(size_t t = u->first + 1; t < translationTags.size(); ++t) {
-        if(translationTags[t].tagPosition_.pos_ < translationTags[u->first].tagPosition_.pos_) {
-          translationTags[u->first].tagPosition_.pos_ = translationTags[t].tagPosition_.pos_;
+      if(translationTags[u->first].lineTag_->second == 0) {
+        translationTags[u->first].tagPosition_.pos_ = 0;
+      } else {
+        if (translationTags[u->first].lineTag_->second == maxSrcPos) {
+          translationTags[u->first].tagPosition_.pos_ = words.size();
+        } else {
+          for(auto a = hardAlignment.begin() + u->second; a != hardAlignment.end(); ++a) {
+            if(a->tgtPos < translationTags[u->first].tagPosition_.pos_) {
+              translationTags[u->first].tagPosition_.pos_ = a->tgtPos;
+            }
+          }
+          // do not nest previous tags - put this unbalanced opening tag at the end of them if they
+          // are appearing after the unbalanced tag's current assigned position
+          for(size_t t = 0; t < u->first; ++t) {
+            if(translationTags[t].tagPosition_.pos_ > translationTags[u->first].tagPosition_.pos_) {
+              translationTags[u->first].tagPosition_.pos_ = translationTags[t].tagPosition_.pos_;
+            }
+          }
         }
-      }
-      for(auto a = hardAlignment.begin() + u->second; a != hardAlignment.end(); ++a) {
-        if(a->tgtPos < translationTags[u->first].tagPosition_.pos_) {
-          translationTags[u->first].tagPosition_.pos_ = a->tgtPos;
+        // if there are tags nested then have them remain nested
+        for(size_t t = u->first + 1; t < translationTags.size(); ++t) {
+          if(translationTags[t].tagPosition_.pos_ < translationTags[u->first].tagPosition_.pos_) {
+            translationTags[u->first].tagPosition_.pos_ = translationTags[t].tagPosition_.pos_;
+          }
         }
       }
       translationTags[u->first].tagPosition_.span_ = words.size() - translationTags[u->first].tagPosition_.pos_ + 1;

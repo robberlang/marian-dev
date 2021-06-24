@@ -24,7 +24,7 @@ public:
 
   virtual void mmap(Ptr<ExpressionGraph> graph,
                     const void* ptr,
-                    bool markedReloaded = true)
+                    bool markedReloaded = true) override
       = 0;
 
   virtual void save(Ptr<ExpressionGraph> graph,
