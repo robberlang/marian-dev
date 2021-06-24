@@ -639,6 +639,13 @@ Words reinsertTags(const Words& words,
               translationTags[u->first].tagPosition_.pos_ = a->tgtPos;
             }
           }
+          // do not nest previous tags - put this unbalanced opening tag at the end of them if they
+          // are appearing after the unbalanced tag's current assigned position
+          for(size_t t = 0; t < u->first; ++t) {
+            if(translationTags[t].tagPosition_.pos_ > translationTags[u->first].tagPosition_.pos_) {
+              translationTags[u->first].tagPosition_.pos_ = translationTags[t].tagPosition_.pos_;
+            }
+          }
         }
         // if there are tags nested then have them remain nested
         for(size_t t = u->first + 1; t < translationTags.size(); ++t) {
