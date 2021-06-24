@@ -769,6 +769,8 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
   addSuboptionsBatching(cli);
   addSuboptionsIntgemm(cli);
 
+  cli.add<bool>("--use-legacy-batching",
+      "Use legacy codepath with a for loop of cblas_sgemm, instead of cblas_sgemm_batched.");
   cli.add<bool>("--fp16",
       "Shortcut for mixed precision inference with float16, corresponds to: --precision float16");
   cli.add<std::vector<std::string>>("--precision",
