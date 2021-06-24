@@ -364,7 +364,7 @@ Words reinsertTags(const Words& words,
         } else if(lineTag->second == maxSrcPos
                   && translationTags[unbalancedOpenTags.back().first].lineTag_->second
                          == maxSrcPos) {
-          // this is the case where the tag is at the beginning of the source
+          // this is the case where the tag is at the end of the source
           for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
             translationTags[t].nests_.emplace_back(
                 unbalancedOpenTags.back().first, words.size() - 1, 1);
@@ -631,9 +631,13 @@ Words reinsertTags(const Words& words,
       if(translationTags[u->first].lineTag_->second == 0) {
         translationTags[u->first].tagPosition_.pos_ = 0;
       } else {
-        for(auto a = hardAlignment.begin() + u->second; a != hardAlignment.end(); ++a) {
-          if(a->tgtPos < translationTags[u->first].tagPosition_.pos_) {
-            translationTags[u->first].tagPosition_.pos_ = a->tgtPos;
+        if (translationTags[u->first].lineTag_->second == maxSrcPos) {
+          translationTags[u->first].tagPosition_.pos_ = words.size();
+        } else {
+          for(auto a = hardAlignment.begin() + u->second; a != hardAlignment.end(); ++a) {
+            if(a->tgtPos < translationTags[u->first].tagPosition_.pos_) {
+              translationTags[u->first].tagPosition_.pos_ = a->tgtPos;
+            }
           }
         }
         // if there are tags nested then have them remain nested
