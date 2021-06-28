@@ -215,7 +215,8 @@ Ptr<DecoderState> EncoderDecoder::step(
 
 Ptr<DecoderState> EncoderDecoder::stepAll(Ptr<ExpressionGraph> graph,
                                           Ptr<data::CorpusBatch> batch,
-                                          bool clearGraph) {
+                                          bool clearGraph,
+                                          InputFormat inputFormat) {
   if(clearGraph)
     clear(graph);
 
@@ -224,13 +225,11 @@ Ptr<DecoderState> EncoderDecoder::stepAll(Ptr<ExpressionGraph> graph,
 
   // Fill state with embeddings from batch (ground truth)
   decoders_[0]->embeddingsFromBatch(graph, state, batch);
-  auto nextState = decoders_[0]->step(
-      graph,
-      state,
-      options_->hasAndNotEmpty("alignment")
-          || (ConvertInputFormat(options_->get<std::string>("input-format", ""))
-                  != InputFormat::PLAINTEXT
-              && !options_->get<bool>("entitize-tags", false)));
+  auto nextState = decoders_[0]->step(graph,
+                                      state,
+                                      options_->hasAndNotEmpty("alignment")
+                                          || (inputFormat != InputFormat::PLAINTEXT
+                                              && !options_->get<bool>("entitize-tags", false)));
   nextState->setTargetMask(state->getTargetMask());
   nextState->setTargetWords(state->getTargetWords());
 
@@ -238,9 +237,10 @@ Ptr<DecoderState> EncoderDecoder::stepAll(Ptr<ExpressionGraph> graph,
 }
 
 Logits EncoderDecoder::build(Ptr<ExpressionGraph> graph,
-                           Ptr<data::CorpusBatch> batch,
-                           bool clearGraph) {
-  auto state = stepAll(graph, batch, clearGraph);
+                             Ptr<data::CorpusBatch> batch,
+                             bool clearGraph,
+                             InputFormat inputFormat) {
+  auto state = stepAll(graph, batch, clearGraph, inputFormat);
 
   // returns raw logits
   return state->getLogProbs();
