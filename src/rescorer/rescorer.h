@@ -36,8 +36,10 @@ public:
     builder_->mmap(graph, ptr);
   }
 
-  Ptr<RationalLoss> build(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> batch) {
-    return builder_->build(graph, batch);
+  Ptr<RationalLoss> build(Ptr<ExpressionGraph> graph,
+                          Ptr<data::CorpusBatch> batch,
+                          InputFormat inputFormat) {
+    return builder_->build(graph, batch, true, inputFormat);
   }
 
   data::SoftAlignment getAlignment() {
@@ -151,7 +153,7 @@ public:
           // @TODO: normalize by length as in normalize
           // Once we have Frank's concept of ce-sum with sample size by words we will return a pair
           // here which will make it trivial to report all variants.
-          auto dynamicLoss = builder->build(graph, batch);
+          auto dynamicLoss = builder->build(graph, batch, inputFormat);
 
           graph->forward();
 

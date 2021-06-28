@@ -35,7 +35,9 @@ public:
 
   virtual Logits build(Ptr<ExpressionGraph> graph,
                        Ptr<data::CorpusBatch> batch,
-                       bool clearGraph = true) = 0;
+                       bool clearGraph = true,
+                       InputFormat inputFormat = InputFormat::PLAINTEXT)
+      = 0;
 
   virtual Ptr<DecoderState> startState(Ptr<ExpressionGraph> graph,
                                        Ptr<data::CorpusBatch> batch) = 0;
@@ -157,11 +159,13 @@ public:
 
   virtual Ptr<DecoderState> stepAll(Ptr<ExpressionGraph> graph,
                                     Ptr<data::CorpusBatch> batch,
-                                    bool clearGraph = true);
+                                    bool clearGraph = true,
+                                    InputFormat inputFormat = InputFormat::PLAINTEXT);
 
   virtual Logits build(Ptr<ExpressionGraph> graph,
                        Ptr<data::CorpusBatch> batch,
-                       bool clearGraph = true) override;
+                       bool clearGraph = true,
+                       InputFormat inputFormat = InputFormat::PLAINTEXT) override;
 
   virtual Logits build(Ptr<ExpressionGraph> graph,
                        Ptr<data::Batch> batch,

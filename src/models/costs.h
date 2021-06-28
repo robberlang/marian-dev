@@ -22,10 +22,13 @@ namespace models {
 
 class ICost {
 public:
-  virtual Ptr<MultiRationalLoss> apply(Ptr<IModel> model,
-                                       Ptr<ExpressionGraph> graph, // @TODO: why needed? Can it be gotten from model?
-                                       Ptr<data::Batch> batch,
-                                       bool clearGraph = true) = 0;
+  virtual Ptr<MultiRationalLoss> apply(
+      Ptr<IModel> model,
+      Ptr<ExpressionGraph> graph,  // @TODO: why needed? Can it be gotten from model?
+      Ptr<data::Batch> batch,
+      bool clearGraph = true,
+      InputFormat inputFormat = InputFormat::PLAINTEXT)
+      = 0;
   virtual ~ICost() {}
 };
 
@@ -56,13 +59,14 @@ public:
   virtual ~EncoderDecoderCECost() {}
 
   Ptr<MultiRationalLoss> apply(Ptr<IModel> model,
-             Ptr<ExpressionGraph> graph,
-             Ptr<data::Batch> batch,
-             bool clearGraph = true) override {
+                               Ptr<ExpressionGraph> graph,
+                               Ptr<data::Batch> batch,
+                               bool clearGraph = true,
+                               InputFormat inputFormat = InputFormat::PLAINTEXT) override {
     auto encdec = std::static_pointer_cast<EncoderDecoder>(model);
     auto corpusBatch = std::static_pointer_cast<data::CorpusBatch>(batch);
 
-    auto state = encdec->stepAll(graph, corpusBatch, clearGraph);
+    auto state = encdec->stepAll(graph, corpusBatch, clearGraph, inputFormat);
 
     Expr weights;
     if(toBeWeighted_)
@@ -109,10 +113,10 @@ public:
   }
 
   Ptr<MultiRationalLoss> apply(Ptr<IModel> model,
-             Ptr<ExpressionGraph> graph,
-             Ptr<data::Batch> batch,
-             bool clearGraph = true) override {
-
+                               Ptr<ExpressionGraph> graph,
+                               Ptr<data::Batch> batch,
+                               bool clearGraph = true,
+                               InputFormat /*inputFormat*/ = InputFormat::PLAINTEXT) override {
     auto enccls = std::static_pointer_cast<EncoderClassifier>(model);
     auto corpusBatch = std::static_pointer_cast<data::CorpusBatch>(batch);
 
@@ -154,8 +158,8 @@ public:
   Ptr<MultiRationalLoss> apply(Ptr<IModel> model,
                                Ptr<ExpressionGraph> graph,
                                Ptr<data::Batch> batch,
-                               bool clearGraph = true) override {
-
+                               bool clearGraph = true,
+                               InputFormat /*inputFormat*/ = InputFormat::PLAINTEXT) override {
     auto encpool = std::static_pointer_cast<EncoderPooler>(model);
     auto corpusBatch = std::static_pointer_cast<data::CorpusBatch>(batch);
     std::vector<Expr> dotProducts = encpool->apply(graph, corpusBatch, clearGraph);
@@ -225,9 +229,10 @@ public:
   }
 
   virtual Ptr<RationalLoss> build(Ptr<ExpressionGraph> graph,
-                       Ptr<data::Batch> batch,
-                       bool clearGraph = true) override {
-    return cost_->apply(model_, graph, batch, clearGraph);
+                                  Ptr<data::Batch> batch,
+                                  bool clearGraph = true,
+                                  InputFormat inputFormat = InputFormat::PLAINTEXT) override {
+    return cost_->apply(model_, graph, batch, clearGraph, inputFormat);
   };
 
   virtual void clear(Ptr<ExpressionGraph> graph) override { model_->clear(graph); };
@@ -372,7 +377,8 @@ public:
 
   virtual Logits build(Ptr<ExpressionGraph> /*graph*/,
                        Ptr<data::CorpusBatch> /*batch*/,
-                       bool /*clearGraph*/ = true) override {
+                       bool /*clearGraph*/ = true,
+                       InputFormat /*inputFormat*/ = InputFormat::PLAINTEXT) override {
     ABORT("Wrong wrapper. Use models::Trainer or models::Scorer");
   }
 
