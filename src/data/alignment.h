@@ -60,7 +60,7 @@ public:
 typedef std::vector<std::vector<float>> SoftAlignment; // [trg pos][beam depth * max src length * batch size]
 
 WordAlignment ConvertSoftAlignToHardAlign(const SoftAlignment& alignSoft,
-                                          float threshold = 0.3f,
+                                          float threshold = 0.1f,
                                           bool useStrategy = true,
                                           bool matchLastWithLast = true,
                                           bool lineSpaceSymbolStart = false,
