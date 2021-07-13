@@ -354,13 +354,17 @@ Words reinsertTags(const Words& words,
            && translationTags[unbalancedOpenTags.back().first].lineTag_->second == 0) {
           // this is the case where the tag encloses the entire source
           translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_ = 0;
-          translationTags[unbalancedOpenTags.back().first].tagPosition_.span_ = words.size() + 1;
+          translationTags[unbalancedOpenTags.back().first].tagPosition_.span_ = words.size();
           for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
             translationTags[t].nests_.emplace_back(
-                unbalancedOpenTags.back().first, 0, words.size() + 1);
+                unbalancedOpenTags.back().first, 0, words.size());
+            // put tags that were placed at the end back to within the nest (at the end of the nest)
+            if(translationTags[t].tagPosition_.pos_ > words.size() - 1) {
+              translationTags[t].tagPosition_.pos_ = words.size() - 1;
+            }
           }
           translationTags.emplace_back(
-              lineTag, unbalancedOpenTags.back().first, words.size(), -1 - words.size());
+              lineTag, unbalancedOpenTags.back().first, words.size() - 1, - words.size());
         } else if(lineTag->second == maxSrcPos
                   && translationTags[unbalancedOpenTags.back().first].lineTag_->second
                          == maxSrcPos) {
@@ -369,7 +373,8 @@ Words reinsertTags(const Words& words,
             translationTags[t].nests_.emplace_back(
                 unbalancedOpenTags.back().first, words.size() - 1, 1);
             translationTags[t].tagPosition_.pos_ = words.size() - 1;
-            translationTags[t].tagPosition_.span_ = 1;
+            translationTags[t].tagPosition_.span_
+                = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
           }
           translationTags.emplace_back(
               lineTag, unbalancedOpenTags.back().first, words.size() - 1, -1);
@@ -378,7 +383,8 @@ Words reinsertTags(const Words& words,
           for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
             translationTags[t].nests_.emplace_back(unbalancedOpenTags.back().first, 0, 1);
             translationTags[t].tagPosition_.pos_ = 0;
-            translationTags[t].tagPosition_.span_ = 1;
+            translationTags[t].tagPosition_.span_
+                = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
           }
           translationTags.emplace_back(
               lineTag, unbalancedOpenTags.back().first, 0, -1);
