@@ -316,17 +316,21 @@ Words reinsertTags(const Words& words,
         break;
       }
 
-      if(curWordAlign->tgtPos > maxOverallTgtPos)
-        maxOverallTgtPos = curWordAlign->tgtPos;
+      if(curWordAlign->tgtPos + 1 > maxOverallTgtPos)
+        maxOverallTgtPos = curWordAlign->tgtPos + 1;
     }
 
     if(markupTag->type() != TagType::CLOSE_TAG) {
       if(lineTag->second == 0 && markupTag->type() == TagType::EMPTY_TAG) {
+        // empty tag at beginning of source
         translationTags.emplace_back(lineTag, translationTags.size(), 0, 1);
+      } else if(lineTag->second == maxSrcPos && markupTag->type() == TagType::EMPTY_TAG) {
+        // empty tag at end of source
+        translationTags.emplace_back(lineTag, translationTags.size(), words.size() - 1, 1);
       } else if(curWordAlign != hardAlignment.end() /*&& curWordAlign->srcPos == lineTag->second*/) {
-        if(markupTag->type() == TagType::EMPTY_TAG
-           && (markupTag->spacing() & TAGSPACING_BEFORE) == 0
-           && curWordAlign != hardAlignment.begin()) {
+        if((markupTag->spacing() & TAGSPACING_BEFORE) == 0) {
+          // this is for self closing tags or opening tags of empty elements
+          // looks like a closing tag as it hugs the previous word (no space separation)
           if(translationTags.empty() || translationTags.back().lineTag_->second != lineTag->second) {
             translationTags.emplace_back(
                 lineTag, translationTags.size(), std::prev(curWordAlign)->tgtPos + 1, 1);
@@ -394,6 +398,18 @@ Words reinsertTags(const Words& words,
             // this is the case where the opening tag couldn't be placed
             translationTags.emplace_back(
                 lineTag, unbalancedOpenTags.back().first, words.size(), -1);
+          } else if(lineTag->second == translationTags[unbalancedOpenTags.back().first].lineTag_->second) {
+            // this is the case of an empty element - treat opening tag and closing tag and all tags in
+            // between as self-closing tags as regards position
+            for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
+              translationTags[t].nests_.emplace_back(
+                  unbalancedOpenTags.back().first, 0, 1);
+            }
+            translationTags.emplace_back(
+                lineTag,
+                unbalancedOpenTags.back().first,
+                translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_,
+                -1);
           } else {
             // this is the normal case - opening tag appears somewhere in the middle
             // first get the boundaries of unambiguous word alignments
@@ -625,10 +641,18 @@ Words reinsertTags(const Words& words,
         unbalancedOpenTags.pop_back();
       } else {
         // received unbalanced input - closing tag has no opening tag
-        for(size_t t = 0; t < translationTags.size(); ++t) {
-          translationTags[t].nests_.emplace_back((size_t)-1, 0, maxOverallTgtPos + 1);
+        size_t tgtPos = 0;
+        if(lineTag->second == maxSrcPos) {
+          // if tag is at end of source, put it at end of target
+          tgtPos = words.size() - 1;
+        } else {
+          // put tag after the maximum aligned position
+          tgtPos = maxOverallTgtPos;
         }
-        translationTags.emplace_back(lineTag, (size_t)-1, maxOverallTgtPos, -1 - maxOverallTgtPos);
+        for(size_t t = 0; t < translationTags.size(); ++t) {
+          translationTags[t].nests_.emplace_back((size_t)-1, 0, tgtPos + 1);
+        }
+        translationTags.emplace_back(lineTag, (size_t)-1, tgtPos, -1 - tgtPos);
       }
     }
   }
