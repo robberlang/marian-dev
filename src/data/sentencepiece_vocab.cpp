@@ -13,6 +13,7 @@
 #include "common/tag_finder.h"
 #include "common/utils.h"
 #include "common/char_entities.h"
+#include "common/unicode_char_props.h"
 
 #include <sstream>
 #include <random>
@@ -340,6 +341,20 @@ public:
             && wordStr[2] == (char)0x81);
   }
 
+  bool wordStartsWithAlpha(const Word& word) const {
+    const std::string& wrd = (*this)[word];
+    std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+    return !wrdU.empty() && !unicodecharprops::isUCharNonSpacing(wrdU.front())
+           && unicodecharprops::isUCharAlpha(wrdU.front());
+  }
+
+  bool wordEndsWithAlpha(const Word& word) const {
+    const std::string& wrd = (*this)[word];
+    std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
+    return !wrdU.empty() && !unicodecharprops::isUCharNonSpacing(wrdU.back())
+           && unicodecharprops::isUCharAlpha(wrdU.back());
+  }
+
   Words encode(const std::string& line,
                bool addEOS,
                bool inference,
@@ -359,7 +374,9 @@ public:
           char tagSpacing = TAGSPACING_NONE;
           size_t r = p;
           if(p != std::string::npos) {
-            r = tagfinder::findTagEnd(line, p);
+            std::vector<std::pair<std::string, std::string>> attributes;
+            r = tagfinder::findTagEnd(
+                line, p, (inputFormat == InputFormat::XLIFF1) ? &attributes : nullptr);
             if(inputFormat == InputFormat::HTML && p + 3 < line.length() && line[p + 1] == '!'
                && line[p + 2] == '-' && line[p + 3] == '-') {
               // a comment
@@ -393,6 +410,15 @@ public:
                             || checkAndMoveToCloseXliffTag(
                                 line, tagNameStart, r, tagNameLength, "x")) {
                     tagType = TagType::EMPTY_TAG;
+                    for(const auto& att : attributes) {
+                      if(att.first == "ctype") {
+                        if(att.second == "lb" || att.second == "pb" || att.second == "x-br"
+                           || att.second == "x-break" || att.second == "x-linefeed") {
+                          tagSpacing |= TAGSPACING_WITHIN;
+                        }
+                        break;
+                      }
+                    }
                   }
                 } else if(inputFormat == InputFormat::HTML) {
                   if(!line.compare(tagNameStart, tagNameLength, "img")
@@ -599,6 +625,7 @@ public:
         std::vector<size_t> entitizedTagIndexes;
         std::vector<bool> spacePrefix;
         spacePrefix.reserve(sentence.size());
+        bool sentenceHasSpaces = false;
         bool firstWordMet = false;
         for(size_t i = 0; i < sentence.size(); ++i) {
           const auto& word = sentence[i];
@@ -612,6 +639,8 @@ public:
             }
             if(!firstWordMet) {
               firstWordMet = true;
+            } else if(spaceRequiredBeforeWord) {
+              sentenceHasSpaces = true;
             }
             spacePrefix.push_back(spaceRequiredBeforeWord);
           } else {
@@ -645,57 +674,207 @@ public:
               tagSpacing |= sentence[j].getMarkupTag()->spacing();
             }
 
+            bool done = false;
             bool spaceRequiredBeforeNextWord = false;
             if(i > 0 && j < spacePrefix.size() && !sentence[j].getMarkupTag()
                && sentence[j] != getEosId()) {
               if(spacePrefix[j]) {
                 spaceRequiredBeforeNextWord = true;
+              } else if(sentenceHasSpaces && tagType != TagType::NONE
+                        && (tagSpacing & TAGSPACING_WITHIN) == 0 && j + 1 < sentence.size()) {
+                // prevent the tags from appearing in the middle of the word
+                // sentence has spaces, and the adjacent tags are all open or close (possibly with
+                // self-closing mixed in)
+                // if open, move left, if close, move right to where there is a space
+                // deal with everything here:
+                if(tagType != TagType::CLOSE_TAG) {
+                  if(wordStartsWithAlpha(sentence[j])) {
+                    done = true;
+                    size_t previousWordsEndIdx = spmSentence.size();
+                    for(size_t k = 0; k < spmSentence.size(); ++k) {
+                      if(!wordEndsWithAlpha(sentence[i - k - 1])) {
+                        // tag comes after this word
+                        previousWordsEndIdx = spmSentence.size() - k;
+                        break;
+                      }
+                      if(spacePrefix[i - k - 1]) {
+                        previousWordsEndIdx = spmSentence.size() - k - 1;
+                        break;
+                      }
+                    }
+
+                    bool spaceRequired = false;
+                    std::vector<int> spmTwo;
+                    if(!spmSentence.empty()) {
+                      if(previousWordsEndIdx < spmSentence.size()) {
+                        size_t idx = i - spmSentence.size() + previousWordsEndIdx;
+                        spaceRequired = idx > 0 && spacePrefix[idx];
+                        auto it = std::next(spmSentence.begin(), previousWordsEndIdx);
+                        std::move(it, spmSentence.end(), std::back_inserter(spmTwo));
+                        spmSentence.erase(it, spmSentence.end());
+                      }
+                      std::string detokenized;
+                      spm_->Decode(spmSentence, &detokenized);
+                      spmSentence.clear();
+                      line += encodeSpecialChars(detokenized);
+                    }
+
+                    bool spaceNeededBeforeOpenTag = spaceRequired;
+                    if(spaceNeededBeforeOpenTag) {
+                      for(size_t m = i; m < j; ++m) {
+                        const auto& markupTag = sentence[m].getMarkupTag();
+                        if((markupTag->spacing() & TAGSPACING_BEFORE) != 0
+                           || (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
+                          spaceNeededBeforeOpenTag = false;
+                          break;
+                        }
+                      }
+                    }
+
+                    bool emptyLine = line.empty();
+                    for(size_t m = i; m < j; ++m) {
+                      const auto& markupTag = sentence[m].getMarkupTag();
+                      if(!line.empty() && line.back() != ' ') {
+                        if(spaceNeededBeforeOpenTag && markupTag->type() != TagType::CLOSE_TAG) {
+                          line += ' ';
+                          spaceNeededBeforeOpenTag = false;
+                        } else if(spaceRequired
+                                  && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
+                          line += ' ';
+                        }
+                      }
+                      line += markupTag->tag();
+                      if((spaceRequired || emptyLine)
+                         && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
+                        line += ' ';
+                      }
+                    }
+
+                    if(!spmTwo.empty()) {
+                      std::string detokenized;
+                      spm_->Decode(spmTwo, &detokenized);
+                      line += encodeSpecialChars(detokenized);
+                    }
+                  }
+                } else {
+                  // closing tag(s), move right
+                  if(wordEndsWithAlpha(sentence[j])) {
+                    done = true;
+                    size_t k = j;
+                    for(; k < spacePrefix.size() && !spacePrefix[k] && sentence[k] != getEosId();
+                        ++k) {
+                      if(sentence[k].getMarkupTag()) {
+                        if(sentence[k].toWordIndex() == (WordIndex)-1
+                           && sentence[k].getMarkupTag()->type() != TagType::CLOSE_TAG) {
+                          // the next real word must require a leading space or eos or non-alpha
+                          size_t l = k + 1;
+                          for(; l < spacePrefix.size() && sentence[l].getMarkupTag(); ++l) {
+                          }
+
+                          if(l < spacePrefix.size() && !spacePrefix[l]
+                             && sentence[l] != getEosId()) {
+                            if(!wordStartsWithAlpha(sentence[l])) {
+                              break;
+                            }
+                            // no change to the position of the tag to place
+                            k = j;
+                          }
+                          break;
+                        }
+                      } else {
+                        if(!wordStartsWithAlpha(sentence[k])) {
+                          break;
+                        }
+                      }
+                    }
+
+                    for(size_t l = j; l < k; ++l) {
+                      if(!sentence[l].getMarkupTag()) {
+                        spmSentence.push_back(sentence[l].toWordIndex());
+                      }
+                    }
+
+                    if(!spmSentence.empty()) {
+                      std::string detokenized;
+                      spm_->Decode(spmSentence, &detokenized);
+                      spmSentence.clear();
+                      line += encodeSpecialChars(detokenized);
+                    }
+
+                    j = k;
+                    bool spaceRequired = (j < spacePrefix.size() && spacePrefix[j]);
+                    bool spaceAdded = false;
+                    for(size_t m = i; m < j; ++m) {
+                      const auto& markupTag = sentence[m].getMarkupTag();
+                      if(markupTag && sentence[m].toWordIndex() == (WordIndex)-1) {
+                        if(spaceRequired && !line.empty() && line.back() != ' '
+                           && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
+                          line += ' ';
+                          spaceAdded = true;
+                        }
+
+                        line += markupTag->tag();
+                        if(spaceRequired && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
+                          line += ' ';
+                          spaceAdded = true;
+                        }
+                      }
+                    }
+
+                    if(spaceRequired && !spaceAdded) {
+                      line += ' ';
+                    }
+                  }
+                }
               }
             }
 
-            if(!spmSentence.empty()) {
-              std::string detokenized;
-              spm_->Decode(spmSentence, &detokenized);
-              spmSentence.clear();
-              line += encodeSpecialChars(detokenized);
-            }
+            if(!done) {
+              if(!spmSentence.empty()) {
+                std::string detokenized;
+                spm_->Decode(spmSentence, &detokenized);
+                spmSentence.clear();
+                line += encodeSpecialChars(detokenized);
+              }
 
-            bool emptyLine = line.empty();
-            bool spaceNeededBeforeOpenTag
-                = spaceRequiredBeforeNextWord && tagType != TagType::CLOSE_TAG;
-            if(spaceNeededBeforeOpenTag) {
+              bool emptyLine = line.empty();
+              bool spaceNeededBeforeOpenTag
+                  = spaceRequiredBeforeNextWord && tagType != TagType::CLOSE_TAG;
+              if(spaceNeededBeforeOpenTag) {
+                for(size_t k = i; k < j; ++k) {
+                  const auto& markupTag = sentence[k].getMarkupTag();
+                  if((markupTag->spacing() & TAGSPACING_BEFORE) != 0
+                     || (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
+                    spaceNeededBeforeOpenTag = false;
+                    break;
+                  }
+                }
+              }
+              bool spaceAdded = false;
               for(size_t k = i; k < j; ++k) {
                 const auto& markupTag = sentence[k].getMarkupTag();
-                if((markupTag->spacing() & TAGSPACING_BEFORE) != 0
-                   || (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
-                  spaceNeededBeforeOpenTag = false;
-                  break;
+                if(!line.empty() && line.back() != ' ') {
+                  if(spaceNeededBeforeOpenTag
+                     && markupTag->type() != TagType::CLOSE_TAG) {
+                    line += ' ';
+                    spaceNeededBeforeOpenTag = false;
+                    spaceAdded = true;
+                  } else if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size())
+                            && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
+                    line += ' ';
+                    spaceAdded = true;
+                  }
                 }
-              }
-            }
-            bool spaceAdded = false;
-            for(size_t k = i; k < j; ++k) {
-              const auto& markupTag = sentence[k].getMarkupTag();
-              if(!line.empty() && line.back() != ' ') {
-                if(spaceNeededBeforeOpenTag && markupTag->type() != TagType::CLOSE_TAG) {
-                  line += ' ';
-                  spaceNeededBeforeOpenTag = false;
-                  spaceAdded = true;
-                } else if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size())
-                          && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
+                line += markupTag->tag();
+                if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size() || emptyLine)
+                   && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                   line += ' ';
                   spaceAdded = true;
                 }
               }
-              line += markupTag->tag();
-              if((spaceRequiredBeforeNextWord || j + 1 >= sentence.size() || emptyLine)
-                 && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
+              if(spaceRequiredBeforeNextWord && !spaceAdded && tagType == TagType::CLOSE_TAG) {
                 line += ' ';
-                spaceAdded = true;
               }
-            }
-            if(spaceRequiredBeforeNextWord && !spaceAdded && tagType == TagType::CLOSE_TAG) {
-              line += ' ';
             }
             i = j;
           } else {

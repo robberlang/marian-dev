@@ -30,6 +30,7 @@ set(MARIAN_SOURCES
   common/signal_handling.cpp
   common/types.cpp
   common/char_entities.cpp
+  common/unicode_char_props.cpp
   
   data/alignment.cpp
   data/vocab.cpp
