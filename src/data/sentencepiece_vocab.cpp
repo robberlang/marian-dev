@@ -758,7 +758,7 @@ public:
                   }
                 } else {
                   // closing tag(s), move right
-                  if(wordEndsWithAlpha(sentence[j])) {
+                  if(!spmSentence.empty() && wordEndsWithAlpha(sentence[i - 1])) {
                     done = true;
                     size_t k = j;
                     for(; k < spacePrefix.size() && !spacePrefix[k] && sentence[k] != getEosId();

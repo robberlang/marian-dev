@@ -312,12 +312,11 @@ Words reinsertTags(const Words& words,
       continue;
 
     for(; curWordAlign != hardAlignment.end(); ++curWordAlign) {
+      if(curWordAlign->tgtPos > maxOverallTgtPos)
+        maxOverallTgtPos = curWordAlign->tgtPos;
       if(curWordAlign->srcPos >= lineTag->second) {
         break;
       }
-
-      if(curWordAlign->tgtPos + 1 > maxOverallTgtPos)
-        maxOverallTgtPos = curWordAlign->tgtPos + 1;
     }
 
     if(markupTag->type() != TagType::CLOSE_TAG) {
@@ -652,6 +651,9 @@ Words reinsertTags(const Words& words,
         }
         for(size_t t = 0; t < translationTags.size(); ++t) {
           translationTags[t].nests_.emplace_back((size_t)-1, 0, tgtPos + 1);
+          if(translationTags[t].tagPosition_.pos_ > tgtPos) {
+            translationTags[t].tagPosition_.pos_ = tgtPos;
+          }
         }
         translationTags.emplace_back(lineTag, (size_t)-1, tgtPos, -1 - tgtPos);
       }
