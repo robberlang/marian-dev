@@ -328,7 +328,8 @@ Words reinsertTags(const Words& words,
         // empty tag at end of source
         translationTags.emplace_back(lineTag, translationTags.size(), words.size() - 1, 1);
       } else if(curWordAlign != hardAlignment.end() /*&& curWordAlign->srcPos == lineTag->second*/) {
-        if((markupTag->spacing() & TAGSPACING_BEFORE) == 0) {
+        if((markupTag->spacing() & TAGSPACING_BEFORE) == 0
+           && curWordAlign != hardAlignment.begin()) {
           // this is for self closing tags or opening tags of empty elements
           // looks like a closing tag as it hugs the previous word (no space separation)
           if(translationTags.empty() || translationTags.back().lineTag_->second != lineTag->second) {
@@ -642,8 +643,8 @@ Words reinsertTags(const Words& words,
       } else {
         // received unbalanced input - closing tag has no opening tag
         size_t tgtPos = 0;
-        if(lineTag->second == maxSrcPos) {
-          // if tag is at end of source, put it at end of target
+        if(lineTag->second == maxSrcPos || maxOverallTgtPos >= words.size()) {
+          // if tag or maximum aligned position is at end of source, put it at end of target
           tgtPos = words.size() - 1;
         } else {
           // put tag after the maximum aligned position
