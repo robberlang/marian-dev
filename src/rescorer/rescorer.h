@@ -321,9 +321,9 @@ public:
     Words words;  // fill
     for(size_t i = 0; i < width; ++i) {
       Word w = subBatch->data()[i * size + no];
-      if(w == vocab->getEosId())
-        break;
       words.push_back(std::move(w));
+      if(words.back() == vocab->getEosId())
+        break;
     }
     Words wordsWithTags = data::reinsertTags(words,
                                              aligns[no],
