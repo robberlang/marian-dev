@@ -59,13 +59,22 @@ class Word {                    // Word is an abstraction of a unique id, not ne
   WordIndex wordId_;
   bool isSpaceSymbol_{false};
   Ptr<MarkupTag> markupTag_;
+  Ptr<std::string> surface_;
   explicit Word(std::size_t wordId, bool isSpaceSymbol = false)
       : wordId_((WordIndex)wordId), isSpaceSymbol_(isSpaceSymbol) {}
-  explicit Word(std::size_t wordId, const std::string& tag, TagType tagType, char tagSpacing)
-      : wordId_((WordIndex)wordId), isSpaceSymbol_(false), markupTag_(New<MarkupTag>(tag, tagType, tagSpacing)) {}
+  explicit Word(std::size_t wordId, std::string surface)
+      : wordId_((WordIndex)wordId), surface_(New<std::string>(std::move(surface))) {}
+  explicit Word(std::size_t wordId, std::string tag, TagType tagType, char tagSpacing)
+      : wordId_((WordIndex)wordId),
+        markupTag_(New<MarkupTag>(std::move(tag), tagType, tagSpacing)) {}
 
 public:
-  static Word fromWordIndex(std::size_t wordId, bool isSpaceSymbol = false) { return Word(wordId, isSpaceSymbol); }
+  static Word fromWordIndex(std::size_t wordId, bool isSpaceSymbol = false) {
+    return Word(wordId, isSpaceSymbol);
+  }
+  static Word fromWordIndex(std::size_t wordId, std::string surface) {
+    return Word(wordId, std::move(surface));
+  }
   static Word fromWordIndexAndTag(std::size_t wordId,
                                   const std::string& tag,
                                   TagType tagType,
@@ -77,6 +86,7 @@ public:
   bool isSpaceSymbol() const { return isSpaceSymbol_; }
   void setIsSpaceSymbol(bool isSpaceSymbol) { isSpaceSymbol_ = isSpaceSymbol; }
   const Ptr<MarkupTag>& getMarkupTag() const { return markupTag_; };
+  const Ptr<std::string>& getSurface() const { return surface_; };
   std::string toString() const { return std::to_string(wordId_); }
 
   // needed for STL containers
