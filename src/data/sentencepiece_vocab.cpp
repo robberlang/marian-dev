@@ -762,16 +762,9 @@ public:
                       lineHasTrailingSpace = false;
                     }
 
-                    std::string spaceNeededBeforeOpenTag = spaceRequired;
-                    if(!spaceNeededBeforeOpenTag.empty()) {
-                      for(size_t m = i; m < j; ++m) {
-                        const auto& markupTag = sentence[m].getMarkupTag();
-                        if((markupTag->spacing() & TAGSPACING_BEFORE) != 0
-                           || (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
-                          spaceNeededBeforeOpenTag.clear();
-                          break;
-                        }
-                      }
+                    std::string spaceNeededBeforeOpenTag;
+                    if(!spaceRequired.empty() && tagSpacing == 0) {
+                      spaceNeededBeforeOpenTag = spaceRequired;
                     }
 
                     bool emptyLine = line.empty();
