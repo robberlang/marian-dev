@@ -447,20 +447,28 @@ public:
             prefix = decodeEntities(prefix, inputFormat);
             sentencepiece::SentencePieceText spt;
             spm_->Encode(prefix, &spt, addDummyPrefix);
-            if(spt.pieces_size() > 0) {
-              const auto& pieces = spt.pieces();
-              const auto& firstSp = *(pieces.begin());
-              Word firstWord(Word::fromWordIndex(firstSp.id(), firstSp.surface()));
+            int numPieces = spt.pieces_size();
+            if(numPieces > 0) {
+              const auto& firstSp = spt.pieces(0);
+              size_t beginOffset = 0;
+              std::string firstSurface(prefix, beginOffset, firstSp.end() - beginOffset);
+              beginOffset = firstSp.end();
+              Word firstWord(Word::fromWordIndex(firstSp.id(), firstSurface));
               if(prefix.front() == ' '
                  || addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON || words.empty()
                  || !isWordSpaceSymbol(firstWord)) {
                 words.push_back(firstWord);
               } else {
-                // put the space before the tag
+                // put the space before the tag since that is where it originates
                 words.emplace(words.end() - 1, firstWord);
               }
-              for(auto sp = pieces.begin() + 1; sp != pieces.end(); ++sp) {
-                words.push_back(Word::fromWordIndex(sp->id(), sp->surface()));
+              for(int k = 1; k < numPieces; ++k) {
+                const auto& sp = spt.pieces(k);
+                std::string surface(prefix, beginOffset, sp.end() - beginOffset);
+                beginOffset = sp.end();
+                if(k == numPieces - 1 && beginOffset < prefix.length())
+                  surface.append(prefix, beginOffset);
+                words.push_back(Word::fromWordIndex(sp.id(), surface));
               }
             }
             addDummyPrefix = (!std::isspace(static_cast<unsigned char>(prefix.back()))
@@ -649,11 +657,15 @@ public:
         spPieces.reserve(sentence.size());
         bool sentenceHasSpaces = false;
         bool firstWordMet = false;
+        bool usingSurfaces = false;
         for(size_t i = 0; i < sentence.size(); ++i) {
           spacePrefix.emplace_back();
           const auto& word = sentence[i];
           if(!word.getMarkupTag()) {
             const std::string& curWord = (*this)[word];
+            if(word.getSurface() && !usingSurfaces) {
+              usingSurfaces = true;
+            }
             // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
             if(curWord.length() >= 3 && curWord[0] == (char)0xe2 && curWord[1] == (char)0x96
                && curWord[2] == (char)0x81) {
@@ -669,8 +681,8 @@ public:
                           == 0) {
                   spacePrefix.back()
                       = surface.substr(0, surface.length() - curWordNoPrefix.length());
-                } else {
-                  spacePrefix.back() = " ";
+                } else if (!surface.empty() && std::isspace(static_cast<unsigned char>(surface[0]))) {
+                  spacePrefix.back() = surface[0];
                 }
               }
             }
@@ -690,6 +702,8 @@ public:
               spPieces.emplace_back((*this)[word]);
             } else {
               std::string surface = *(word.getSurface());
+              // if first word following tag, remove the space prefix from the surface since it has
+              // been added separately
               if(i > 0 && spPieces.empty() && !surface.empty() && !spacePrefix[i].empty()
                  && surface.compare(0, spacePrefix[i].length(), spacePrefix[i]) == 0) {
                 surface.erase(0, spacePrefix[i].length());
@@ -751,17 +765,28 @@ public:
                     if(!spPieces.empty()) {
                       if(previousWordsEndIdx < spPieces.size()) {
                         size_t idx = i - spPieces.size() + previousWordsEndIdx;
-                        if(idx > 0 && !spacePrefix[idx].empty())
+                        if(idx > 0 && previousWordsEndIdx > 0 && !spacePrefix[idx].empty()) {
                           spaceRequired = spacePrefix[idx];
+                          // remove the space prefix from the surface
+                          // since it gets added separately
+                          if(!spPieces[previousWordsEndIdx].empty()
+                             && spPieces[previousWordsEndIdx].compare(
+                                    0, spacePrefix[idx].length(), spacePrefix[idx])
+                                    == 0) {
+                            spPieces[previousWordsEndIdx].erase(0, spacePrefix[idx].length());
+                          }
+                        }
                         auto it = std::next(spPieces.begin(), previousWordsEndIdx);
                         std::move(it, spPieces.end(), std::back_inserter(spPieces2));
                         spPieces.erase(it, spPieces.end());
                       }
-                      std::string detokenized;
-                      spm_->Decode(spPieces, &detokenized);
-                      spPieces.clear();
-                      line += encodeSpecialChars(detokenized);
-                      lineHasTrailingSpace = false;
+                      if(!spPieces.empty()) {
+                        std::string detokenized;
+                        spm_->Decode(spPieces, &detokenized);
+                        spPieces.clear();
+                        line += encodeSpecialChars(detokenized);
+                        lineHasTrailingSpace = false;
+                      }
                     }
 
                     std::string spaceNeededBeforeOpenTag;
@@ -770,29 +795,48 @@ public:
                     }
 
                     bool emptyLine = line.empty();
-                    for(size_t m = i; m < j; ++m) {
+                    bool spaceAdded = false;
+                    size_t m = i;
+                    do {
                       const auto& markupTag = sentence[m].getMarkupTag();
                       if(!lineHasTrailingSpace) {
                         if(!spaceNeededBeforeOpenTag.empty()
                            && markupTag->type() != TagType::CLOSE_TAG) {
                           line += spaceNeededBeforeOpenTag;
                           spaceNeededBeforeOpenTag.clear();
+                          if(usingSurfaces) {
+                            spaceRequired.clear();
+                          }
+                          spaceAdded = true;
                         } else if(!spaceRequired.empty()
                                   && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
                           line += spaceRequired;
+                          if(usingSurfaces) {
+                            spaceRequired.clear();
+                            spaceNeededBeforeOpenTag.clear();
+                          }
+                          spaceAdded = true;
                         }
                       }
                       line += markupTag->tag();
-                      if((!spaceRequired.empty() || emptyLine)
+                      if((!spaceRequired.empty() || (!usingSurfaces && emptyLine))
                          && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                         line += !spaceRequired.empty() ? spaceRequired : " ";
+                        if(usingSurfaces) {
+                          spaceRequired.clear();
+                          spaceNeededBeforeOpenTag.clear();
+                        }
+                        spaceAdded = true;
                         lineHasTrailingSpace = true;
                       } else {
                         lineHasTrailingSpace = false;
                       }
-                    }
+                    } while(++m < j);
 
                     if(!spPieces2.empty()) {
+                      if(!spaceRequired.empty() && !spaceAdded) {
+                        line += spaceRequired;
+                      }
                       std::string detokenized;
                       spm_->Decode(spPieces2, &detokenized);
                       line += encodeSpecialChars(detokenized);
@@ -853,12 +897,16 @@ public:
                     if(j < spacePrefix.size() && !spacePrefix[j].empty())
                       spaceRequired = spacePrefix[j];
                     bool spaceAdded = false;
-                    for(size_t m = i; m < j; ++m) {
+                    size_t m = i;
+                    do {
                       const auto& markupTag = sentence[m].getMarkupTag();
                       if(markupTag && sentence[m].toWordIndex() == (WordIndex)-1) {
                         if(!spaceRequired.empty() && !lineHasTrailingSpace
                            && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
                           line += spaceRequired;
+                          if(usingSurfaces) {
+                            spaceRequired.clear();
+                          }
                           spaceAdded = true;
                         }
 
@@ -866,13 +914,16 @@ public:
                         if(!spaceRequired.empty()
                            && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                           line += spaceRequired;
+                          if(usingSurfaces) {
+                            spaceRequired.clear();
+                          }
                           spaceAdded = true;
                           lineHasTrailingSpace = true;
                         } else {
                           lineHasTrailingSpace = false;
                         }
                       }
-                    }
+                    } while(++m < j);
 
                     if(!spaceRequired.empty() && !spaceAdded) {
                       line += spaceRequired;
@@ -899,33 +950,51 @@ public:
                 spaceNeededBeforeOpenTag = spaceRequiredBeforeNextWord;
               }
               bool spaceAdded = false;
-              for(size_t k = i; k < j; ++k) {
+              size_t k = i;
+              do {
                 const auto& markupTag = sentence[k].getMarkupTag();
                 if(!lineHasTrailingSpace) {
                   if(!spaceNeededBeforeOpenTag.empty()
                      && markupTag->type() != TagType::CLOSE_TAG) {
                     line += spaceNeededBeforeOpenTag;
                     spaceNeededBeforeOpenTag.clear();
+                    if(usingSurfaces) {
+                      spaceRequiredBeforeNextWord.clear();
+                    }
                     spaceAdded = true;
-                  } else if((!spaceRequiredBeforeNextWord.empty() || j + 1 >= sentence.size())
+                  } else if((!spaceRequiredBeforeNextWord.empty()
+                             || (!usingSurfaces && j + 1 >= sentence.size()))
                             && (markupTag->spacing() & TAGSPACING_BEFORE) != 0) {
                     line += !spaceRequiredBeforeNextWord.empty() ? spaceRequiredBeforeNextWord : " ";
+                    if(usingSurfaces) {
+                      spaceRequiredBeforeNextWord.clear();
+                      spaceNeededBeforeOpenTag.clear();
+                    }
                     spaceAdded = true;
                   }
                 }
                 line += markupTag->tag();
-                if((!spaceRequiredBeforeNextWord.empty() || j + 1 >= sentence.size() || emptyLine)
+                if((!spaceRequiredBeforeNextWord.empty()
+                    || (!usingSurfaces && (j + 1 >= sentence.size() || emptyLine)))
                    && (markupTag->spacing() & TAGSPACING_AFTER) != 0) {
                   line += !spaceRequiredBeforeNextWord.empty() ? spaceRequiredBeforeNextWord : " ";
+                  if(usingSurfaces) {
+                    spaceRequiredBeforeNextWord.clear();
+                    spaceNeededBeforeOpenTag.clear();
+                  }
                   spaceAdded = true;
                   lineHasTrailingSpace = true;
                 } else {
                   lineHasTrailingSpace = false;
                 }
-              }
+              } while(++k < j);
               if(!spaceRequiredBeforeNextWord.empty() && !spaceAdded
-                 && tagType == TagType::CLOSE_TAG && (tagSpacing & TAGSPACING_WITHIN) == 0) {
+                 && (usingSurfaces
+                     || (tagType == TagType::CLOSE_TAG && (tagSpacing & TAGSPACING_WITHIN) == 0))) {
                 line += spaceRequiredBeforeNextWord;
+                if(usingSurfaces) {
+                  spaceRequiredBeforeNextWord.clear();
+                }
                 lineHasTrailingSpace = true;
               }
             }
