@@ -489,9 +489,25 @@ public:
 
           if(q + 1 < line.length() && std::isspace(static_cast<unsigned char>(line[q + 1]))) {
             tagSpacing |= TAGSPACING_AFTER;
+            if(prefix.empty() && !entitizeTags) {
+              for(auto it = words.rbegin(); it != words.rend(); ++it) {
+                auto& markupTag = it->getMarkupTag();
+                if(!markupTag) {
+                  break;
+                }
+                markupTag->spacing() |= TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG;
+              }
+            }
           }
 
           if(!entitizeTags) {
+            if(prefix.empty() && !words.empty() && words.back().getMarkupTag()
+               && ((words.back().getMarkupTag()->spacing() & TAGSPACING_BEFORE) != 0
+                   || (words.back().getMarkupTag()->spacing()
+                       & TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG)
+                          != 0)) {
+              tagSpacing |= TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG;
+            }
             words.push_back(Word::fromWordIndexAndTag(
                 (std::size_t)-1, line.substr(p, q - p + 1), tagType, tagSpacing));
           } else {
@@ -731,6 +747,9 @@ public:
               tagSpacing |= sentence[j].getMarkupTag()->spacing();
             }
 
+            bool tagSpacingRequired
+                = ((tagSpacing & TAGSPACING_BEFORE) != 0 || (tagSpacing & TAGSPACING_AFTER) == 0
+                   || (tagSpacing & TAGSPACING_WITHIN) == 0);
             bool done = false;
             std::string spaceRequiredBeforeNextWord;
             if(i > 0 && j < spacePrefix.size() && !sentence[j].getMarkupTag()
@@ -790,7 +809,7 @@ public:
                     }
 
                     std::string spaceNeededBeforeOpenTag;
-                    if(!spaceRequired.empty() && tagSpacing == 0) {
+                    if(!spaceRequired.empty() && !tagSpacingRequired) {
                       spaceNeededBeforeOpenTag = spaceRequired;
                     }
 
@@ -946,7 +965,7 @@ public:
               bool emptyLine = line.empty();
               std::string spaceNeededBeforeOpenTag;
               if(!spaceRequiredBeforeNextWord.empty() && tagType != TagType::CLOSE_TAG
-                 && tagSpacing == 0) {
+                 && !tagSpacingRequired) {
                 spaceNeededBeforeOpenTag = spaceRequiredBeforeNextWord;
               }
               bool spaceAdded = false;
