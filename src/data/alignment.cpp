@@ -328,6 +328,9 @@ Words reinsertTags(const Words& words,
         translationTags.emplace_back(lineTag, translationTags.size(), words.size() - 1, 1);
       } else if(curWordAlign != hardAlignment.end() /*&& curWordAlign->srcPos == lineTag->second*/) {
         if((markupTag->spacing() & TAGSPACING_BEFORE) == 0
+           && (markupTag->spacing() & TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG) == 0
+           && ((markupTag->spacing() & TAGSPACING_AFTER) != 0
+               || (markupTag->spacing() & TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG) != 0)
            && curWordAlign != hardAlignment.begin()) {
           // this is for self closing tags or opening tags of empty elements
           // looks like a closing tag as it hugs the previous word (no space separation)
@@ -335,10 +338,8 @@ Words reinsertTags(const Words& words,
             translationTags.emplace_back(
                 lineTag, translationTags.size(), std::prev(curWordAlign)->tgtPos + 1, 1);
           } else {
-            translationTags.emplace_back(lineTag,
-                                         translationTags.size(),
-                                         translationTags.back().tagPosition_.pos_,
-                                         translationTags.back().tagPosition_.span_);
+            translationTags.emplace_back(
+                lineTag, translationTags.size(), translationTags.back().tagPosition_.pos_, 1);
           }
         } else {
           translationTags.emplace_back(lineTag, translationTags.size(), curWordAlign->tgtPos, 1);

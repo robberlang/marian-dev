@@ -36,6 +36,8 @@ const char TAGSPACING_NONE = 0x0;
 const char TAGSPACING_BEFORE = 0x1;
 const char TAGSPACING_AFTER = 0x2;
 const char TAGSPACING_WITHIN = 0x4;
+const char TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG = 0x8;
+const char TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG = 0x10;
 
 class MarkupTag {
   std::string tag_;
