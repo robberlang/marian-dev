@@ -748,8 +748,8 @@ public:
             }
 
             bool tagSpacingRequired
-                = ((tagSpacing & TAGSPACING_BEFORE) != 0 || (tagSpacing & TAGSPACING_AFTER) == 0
-                   || (tagSpacing & TAGSPACING_WITHIN) == 0);
+                = ((tagSpacing & TAGSPACING_BEFORE) != 0 || (tagSpacing & TAGSPACING_AFTER) != 0
+                   || (tagSpacing & TAGSPACING_WITHIN) != 0);
             bool done = false;
             std::string spaceRequiredBeforeNextWord;
             if(i > 0 && j < spacePrefix.size() && !sentence[j].getMarkupTag()
@@ -973,8 +973,7 @@ public:
               do {
                 const auto& markupTag = sentence[k].getMarkupTag();
                 if(!lineHasTrailingSpace) {
-                  if(!spaceNeededBeforeOpenTag.empty()
-                     && markupTag->type() != TagType::CLOSE_TAG) {
+                  if(!spaceNeededBeforeOpenTag.empty()) {
                     line += spaceNeededBeforeOpenTag;
                     spaceNeededBeforeOpenTag.clear();
                     if(usingSurfaces) {
@@ -1008,12 +1007,8 @@ public:
                 }
               } while(++k < j);
               if(!spaceRequiredBeforeNextWord.empty() && !spaceAdded
-                 && (usingSurfaces
-                     || (tagType == TagType::CLOSE_TAG && (tagSpacing & TAGSPACING_WITHIN) == 0))) {
+                 && (usingSurfaces || (tagSpacing & TAGSPACING_WITHIN) == 0)) {
                 line += spaceRequiredBeforeNextWord;
-                if(usingSurfaces) {
-                  spaceRequiredBeforeNextWord.clear();
-                }
                 lineHasTrailingSpace = true;
               }
             }
