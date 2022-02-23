@@ -350,290 +350,306 @@ Words reinsertTags(const Words& words,
         translationTags.emplace_back(lineTag, translationTags.size(), words.size(), 1);
       }
 
-      if(markupTag->type() == TagType::OPEN_TAG)
-        unbalancedOpenTags.emplace_back(translationTags.size() - 1,
-                                        std::distance(hardAlignment.begin(), curWordAlign));
-    } else {
+      unbalancedOpenTags.emplace_back(translationTags.size() - 1,
+                                      std::distance(hardAlignment.begin(), curWordAlign));
+    }
+    if(markupTag->type() != TagType::OPEN_TAG) {
       if(!unbalancedOpenTags.empty()) {
-        if(lineTag->second == maxSrcPos
-           && translationTags[unbalancedOpenTags.back().first].lineTag_->second == 0) {
-          // this is the case where the tag encloses the entire source
-          translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_ = 0;
-          translationTags[unbalancedOpenTags.back().first].tagPosition_.span_ = words.size();
-          for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
-            translationTags[t].nests_.emplace_back(
-                unbalancedOpenTags.back().first, 0, words.size());
-            // put tags that were placed at the end back to within the nest (at the end of the nest)
-            if(translationTags[t].tagPosition_.pos_ > words.size() - 1) {
-              translationTags[t].tagPosition_.pos_ = words.size() - 1;
-            }
-          }
-          translationTags.emplace_back(
-              lineTag, unbalancedOpenTags.back().first, words.size() - 1, - words.size());
-        } else if(lineTag->second == maxSrcPos
-                  && translationTags[unbalancedOpenTags.back().first].lineTag_->second
-                         == maxSrcPos) {
-          // this is the case where the tag is at the end of the source
-          for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
-            translationTags[t].nests_.emplace_back(
-                unbalancedOpenTags.back().first, words.size() - 1, 1);
-            translationTags[t].tagPosition_.pos_ = words.size() - 1;
-            translationTags[t].tagPosition_.span_
-                = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
-          }
-          translationTags.emplace_back(
-              lineTag, unbalancedOpenTags.back().first, words.size() - 1, -1);
-        } else if(lineTag->second == 0) {
-          // this is the case where the tag is at the beginning of the source
-          for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
-            translationTags[t].nests_.emplace_back(unbalancedOpenTags.back().first, 0, 1);
-            translationTags[t].tagPosition_.pos_ = 0;
-            translationTags[t].tagPosition_.span_
-                = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
-          }
-          translationTags.emplace_back(
-              lineTag, unbalancedOpenTags.back().first, 0, -1);
-        } else {
-          auto wordAlign = hardAlignment.begin() + unbalancedOpenTags.back().second;
-          if(wordAlign == hardAlignment.end()) {
-            // this is the case where the opening tag couldn't be placed
-            translationTags.emplace_back(
-                lineTag, unbalancedOpenTags.back().first, words.size(), -1);
-          } else if(lineTag->second == translationTags[unbalancedOpenTags.back().first].lineTag_->second) {
-            // this is the case of an empty element - treat opening tag and closing tag and all tags in
-            // between as self-closing tags as regards position
+        bool checkForRegionConflict = false;
+        // minTgtPos will be the position of the opening tag, maxTgtPos will be the position
+        // of the closing tag
+        size_t minTgtPos = translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_;
+        size_t maxTgtPos = minTgtPos;
+        if(markupTag->type() == TagType::CLOSE_TAG) {
+          if(lineTag->second == maxSrcPos
+             && translationTags[unbalancedOpenTags.back().first].lineTag_->second == 0) {
+            // this is the case where the tag encloses the entire source
+            translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_ = 0;
+            translationTags[unbalancedOpenTags.back().first].tagPosition_.span_ = words.size();
             for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
               translationTags[t].nests_.emplace_back(
-                  unbalancedOpenTags.back().first, 0, 1);
+                  unbalancedOpenTags.back().first, 0, words.size());
+              // put tags that were placed at the end back to within the nest (at the end of the
+              // nest)
+              if(translationTags[t].tagPosition_.pos_ > words.size() - 1) {
+                translationTags[t].tagPosition_.pos_ = words.size() - 1;
+              }
             }
             translationTags.emplace_back(
-                lineTag,
-                unbalancedOpenTags.back().first,
-                translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_,
-                -1);
+                lineTag, unbalancedOpenTags.back().first, words.size() - 1, -words.size());
+          } else if(lineTag->second == maxSrcPos
+                    && translationTags[unbalancedOpenTags.back().first].lineTag_->second
+                           == maxSrcPos) {
+            // this is the case where the tag is at the end of the source
+            for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
+              translationTags[t].nests_.emplace_back(
+                  unbalancedOpenTags.back().first, words.size() - 1, 1);
+              translationTags[t].tagPosition_.pos_ = words.size() - 1;
+              translationTags[t].tagPosition_.span_
+                  = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
+            }
+            translationTags.emplace_back(
+                lineTag, unbalancedOpenTags.back().first, words.size() - 1, -1);
+          } else if(lineTag->second == 0) {
+            // this is the case where the tag is at the beginning of the source
+            for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
+              translationTags[t].nests_.emplace_back(unbalancedOpenTags.back().first, 0, 1);
+              translationTags[t].tagPosition_.pos_ = 0;
+              translationTags[t].tagPosition_.span_
+                  = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
+            }
+            translationTags.emplace_back(lineTag, unbalancedOpenTags.back().first, 0, -1);
           } else {
-            // this is the normal case - opening tag appears somewhere in the middle
-            // first get the boundaries of unambiguous word alignments
-            // minTgtPos will be the position of the opening tag, maxTgtPos will be the position
-            // of the closing tag
-            size_t minTgtPos = wordAlign->tgtPos;
-            size_t maxTgtPos = wordAlign->tgtPos;
+            checkForRegionConflict = true;
+            auto wordAlign = hardAlignment.begin() + unbalancedOpenTags.back().second;
+            if(wordAlign == hardAlignment.end()) {
+              // this is the case where the opening tag couldn't be placed
+              // place at the end - but if nested, then later will put at end of the nest once the
+              // nest is established
+              translationTags.emplace_back(
+                  lineTag, unbalancedOpenTags.back().first, words.size(), -1);
+              checkForRegionConflict = false;
+            } else if(lineTag->second
+                      != translationTags[unbalancedOpenTags.back().first].lineTag_->second) {
+              // this is the normal case - non-empty element opening tag appears somewhere in the
+              // middle; empty elements (those for which the if statement condition is false) are
+              // treated as self-closing
 
-            // if there are tags nested then have them remain nested
-            for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
-              // ignore tags that couldn't be placed, they will be put within the nest later
-              if(translationTags[t].tagPosition_.pos_ == words.size()) {
-                continue;
-              }
-              if(translationTags[t].tagPosition_.pos_ < minTgtPos) {
-                minTgtPos = translationTags[t].tagPosition_.pos_;
-              }
-              if(translationTags[t].tagPosition_.pos_ > maxTgtPos) {
-                maxTgtPos = translationTags[t].tagPosition_.pos_;
-              }
-            }
+              // first get the boundaries of unambiguous word alignments
+              minTgtPos = wordAlign->tgtPos;
+              maxTgtPos = wordAlign->tgtPos;
 
-            // first loop through the clear word alignments (where source position has only one
-            // corresponding target position or has target positions that are contiguous) to
-            // establish a base region
-            std::vector<std::pair<size_t, float>> allTgtPoses;
-            std::vector<std::vector<std::pair<size_t, float>>> ambiguousTgtPoses;
-            for(; wordAlign != curWordAlign;) {
-              size_t srcPos = wordAlign->srcPos;
-              // tgtPoses is the target positions that align with the current source position
-              std::vector<std::pair<size_t, float>> tgtPoses;
-              tgtPoses.emplace_back(wordAlign->tgtPos, wordAlign->prob);
-              bool contiguous = true;
-              for(++wordAlign; wordAlign != curWordAlign && wordAlign->srcPos == srcPos;
-                  ++wordAlign) {
-                if(wordAlign->tgtPos != tgtPoses.back().first + 1) {
-                  contiguous = false;
+              // if there are tags nested then have them remain nested
+              for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
+                // ignore tags that couldn't be placed, they will be put within the nest later
+                if(translationTags[t].tagPosition_.pos_ == words.size()) {
+                  continue;
                 }
+                if(translationTags[t].tagPosition_.pos_ < minTgtPos) {
+                  minTgtPos = translationTags[t].tagPosition_.pos_;
+                }
+                if(translationTags[t].tagPosition_.pos_ > maxTgtPos) {
+                  maxTgtPos = translationTags[t].tagPosition_.pos_;
+                }
+              }
+
+              // first loop through the clear word alignments (where source position has only one
+              // corresponding target position or has target positions that are contiguous) to
+              // establish a base region
+              std::vector<std::pair<size_t, float>> allTgtPoses;
+              std::vector<std::vector<std::pair<size_t, float>>> ambiguousTgtPoses;
+              for(; wordAlign != curWordAlign;) {
+                size_t srcPos = wordAlign->srcPos;
+                // tgtPoses is the target positions that align with the current source position
+                std::vector<std::pair<size_t, float>> tgtPoses;
                 tgtPoses.emplace_back(wordAlign->tgtPos, wordAlign->prob);
-              }
-
-              if(contiguous) {
-                for(const auto& tgtPos : tgtPoses) {
-                  if(tgtPos.first < minTgtPos) {
-                    minTgtPos = tgtPos.first;
-                  } else if(tgtPos.first + 1 > maxTgtPos) {
-                    maxTgtPos = tgtPos.first + 1;
+                bool contiguous = true;
+                for(++wordAlign; wordAlign != curWordAlign && wordAlign->srcPos == srcPos;
+                    ++wordAlign) {
+                  if(wordAlign->tgtPos != tgtPoses.back().first + 1) {
+                    contiguous = false;
                   }
-                }
-                std::move(tgtPoses.begin(), tgtPoses.end(), std::back_inserter(allTgtPoses));
-              } else {
-                ambiguousTgtPoses.push_back(std::move(tgtPoses));
-              }
-            }
-
-            // loop through the disjointed to-many word alignments, picking the alignment that is
-            // closest to the base region
-            for(const auto& tgtPoses : ambiguousTgtPoses) {
-              size_t minDistance = (size_t)-1;
-              auto minDistanceTgtPosIt = tgtPoses.begin();
-              for(auto it = tgtPoses.begin(); it != tgtPoses.end(); ++it) {
-                size_t tgtPos = it->first;
-                if(tgtPos >= minTgtPos && tgtPos < maxTgtPos) {
-                  minDistance = 0;
-                  minDistanceTgtPosIt = it;
-                  break;
+                  tgtPoses.emplace_back(wordAlign->tgtPos, wordAlign->prob);
                 }
 
-                size_t distance = (tgtPos < minTgtPos) ? minTgtPos - tgtPos : tgtPos - maxTgtPos + 1;
-                if(distance < minDistance) {
-                  minDistance = distance;
-                  minDistanceTgtPosIt = it;
-                }
-              }
-
-              // expand the minimum distance point to cover contiguous sequences
-              if(minDistanceTgtPosIt->first < minTgtPos) {
-                minTgtPos = minDistanceTgtPosIt->first;
-              }
-
-              allTgtPoses.push_back(*minDistanceTgtPosIt);
-
-              // scan backward
-              for(auto it = tgtPoses.rbegin() + std::distance(minDistanceTgtPosIt, tgtPoses.end());
-                  it != tgtPoses.rend();
-                  ++it) {
-                if(it->first + 1 != std::prev(it)->first) {
-                  break;
-                }
-                allTgtPoses.push_back(*it);
-                if(it->first < minTgtPos) {
-                  minTgtPos = it->first;
-                }
-              }
-
-              if(minDistanceTgtPosIt->first + 1 > maxTgtPos) {
-                maxTgtPos = minDistanceTgtPosIt->first + 1;
-              }
-
-              // scan forward
-              for(auto it = std::next(minDistanceTgtPosIt); it != tgtPoses.end(); ++it) {
-                if(it->first != std::prev(it)->first + 1) {
-                  break;
-                }
-                allTgtPoses.push_back(*it);
-                if(it->first + 1 > maxTgtPos) {
-                  maxTgtPos = it->first + 1;
-                }
-              }
-            }
-
-            if(!allTgtPoses.empty()) {
-              std::sort(allTgtPoses.begin(),
-                        allTgtPoses.end(),
-                        [](const std::pair<size_t, float>& a, const std::pair<size_t, float>& b) {
-                          return a.first < b.first;
-                        });
-              auto bestContiguousStart = allTgtPoses.begin();
-              size_t bestContiguousLength = 1;
-              size_t bestContiguousCoverage = 1;
-              float bestContiguousScore = bestContiguousStart->second;
-              auto curContiguousStart = bestContiguousStart;
-              float curContiguousScore = bestContiguousScore;
-              size_t curContiguousCoverage = 1;
-              minTgtPos = (size_t)-1;
-              maxTgtPos = (size_t)-1;
-              for(auto it = std::next(allTgtPoses.begin());; ++it) {
-                if(it == allTgtPoses.end() || it->first > std::prev(it)->first + 2) {
-                  if(curContiguousScore > bestContiguousScore
-                     || (curContiguousScore == bestContiguousScore
-                         && curContiguousCoverage > bestContiguousCoverage)) {
-                    bestContiguousCoverage = curContiguousCoverage;
-                    bestContiguousStart = curContiguousStart;
-                    bestContiguousScore = curContiguousScore;
-                    bestContiguousLength = std::distance(curContiguousStart, it);
-                  }
-                  if(curContiguousScore > 0.8f || (curContiguousCoverage > 1
-                     && curContiguousScore > 0.5f)) {
-                    maxTgtPos = std::prev(it)->first + 1;
-                    if(minTgtPos == (size_t)-1) {
-                      minTgtPos = curContiguousStart->first;
+                if(contiguous) {
+                  for(const auto& tgtPos : tgtPoses) {
+                    if(tgtPos.first < minTgtPos) {
+                      minTgtPos = tgtPos.first;
+                    } else if(tgtPos.first + 1 > maxTgtPos) {
+                      maxTgtPos = tgtPos.first + 1;
                     }
                   }
-                  if(it == allTgtPoses.end()) {
+                  std::move(tgtPoses.begin(), tgtPoses.end(), std::back_inserter(allTgtPoses));
+                } else {
+                  ambiguousTgtPoses.push_back(std::move(tgtPoses));
+                }
+              }
+
+              // loop through the disjointed to-many word alignments, picking the alignment that is
+              // closest to the base region
+              for(const auto& tgtPoses : ambiguousTgtPoses) {
+                size_t minDistance = (size_t)-1;
+                auto minDistanceTgtPosIt = tgtPoses.begin();
+                for(auto it = tgtPoses.begin(); it != tgtPoses.end(); ++it) {
+                  size_t tgtPos = it->first;
+                  if(tgtPos >= minTgtPos && tgtPos < maxTgtPos) {
+                    minDistance = 0;
+                    minDistanceTgtPosIt = it;
                     break;
                   }
-                  curContiguousStart = it;
-                  curContiguousScore = 0.f;
+
+                  size_t distance
+                      = (tgtPos < minTgtPos) ? minTgtPos - tgtPos : tgtPos - maxTgtPos + 1;
+                  if(distance < minDistance) {
+                    minDistance = distance;
+                    minDistanceTgtPosIt = it;
+                  }
                 }
-                curContiguousCoverage = it->first - curContiguousStart->first + 1;
-                curContiguousScore += it->second;
-              }
 
-              size_t bestContiguousTgtPos
-                  = std::next(bestContiguousStart, bestContiguousLength - 1)->first + 1;
-              if(minTgtPos == (size_t)-1) {
-                minTgtPos = bestContiguousStart->first;
-                maxTgtPos = bestContiguousTgtPos;
-              } else if(bestContiguousTgtPos > maxTgtPos) {
-                maxTgtPos = bestContiguousTgtPos;
-              }
-            }
+                // expand the minimum distance point to cover contiguous sequences
+                if(minDistanceTgtPosIt->first < minTgtPos) {
+                  minTgtPos = minDistanceTgtPosIt->first;
+                }
 
-            // do not set maxTgtPos so that it encloses the EOS token
-            if(maxTgtPos == words.size()) {
-              --maxTgtPos;
-            }
+                allTgtPoses.push_back(*minDistanceTgtPosIt);
 
-            // check that the chosen region doesn't overlap with other regions, causing bad syntax
-            // also don't want tags nested within tags they weren't nested in on the source
-            bool regionConflict = false;
-            for(const auto& existingRegion : trgTagRegions) {
-              if(existingRegion.first > unbalancedOpenTags.back().first) {
-                // nested
-                continue;
-              }
-              size_t existingRegionMinTgtPos
-                  = translationTags[existingRegion.first].tagPosition_.pos_;
-              size_t existingRegionMaxTgtPos
-                  = translationTags[existingRegion.second].tagPosition_.pos_;
-              // if the new region would cause an overlap and bad syntax then move one end of it so
-              // it borders rather than overlaps
-              if(minTgtPos <= existingRegionMinTgtPos && maxTgtPos > existingRegionMinTgtPos
-                 && maxTgtPos <= existingRegionMaxTgtPos) {
-                maxTgtPos = existingRegionMinTgtPos;
-              } else if(minTgtPos < existingRegionMaxTgtPos && minTgtPos >= existingRegionMinTgtPos
-                        && maxTgtPos >= existingRegionMaxTgtPos) {
-                minTgtPos = existingRegionMaxTgtPos;
-              } else if(minTgtPos < existingRegionMaxTgtPos
-                        && maxTgtPos > existingRegionMinTgtPos) {  // nested or is nesting
-                regionConflict = true;
-                break;
-              }
-            }
+                // scan backward
+                for(auto it
+                    = tgtPoses.rbegin() + std::distance(minDistanceTgtPosIt, tgtPoses.end());
+                    it != tgtPoses.rend();
+                    ++it) {
+                  if(it->first + 1 != std::prev(it)->first) {
+                    break;
+                  }
+                  allTgtPoses.push_back(*it);
+                  if(it->first < minTgtPos) {
+                    minTgtPos = it->first;
+                  }
+                }
 
-            if(!regionConflict) {
-              std::ptrdiff_t span = maxTgtPos - minTgtPos + 1;
-              translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_ = minTgtPos;
-              translationTags[unbalancedOpenTags.back().first].tagPosition_.span_ = span;
-              for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
-                translationTags[t].nests_.emplace_back(
-                    unbalancedOpenTags.back().first, minTgtPos, span);
-                // put tags that were placed at the end back to within the nest (at the end of the
-                // nest)
-                if(translationTags[t].tagPosition_.pos_ > maxTgtPos) {
-                  translationTags[t].tagPosition_.pos_ = maxTgtPos;
+                if(minDistanceTgtPosIt->first + 1 > maxTgtPos) {
+                  maxTgtPos = minDistanceTgtPosIt->first + 1;
+                }
+
+                // scan forward
+                for(auto it = std::next(minDistanceTgtPosIt); it != tgtPoses.end(); ++it) {
+                  if(it->first != std::prev(it)->first + 1) {
+                    break;
+                  }
+                  allTgtPoses.push_back(*it);
+                  if(it->first + 1 > maxTgtPos) {
+                    maxTgtPos = it->first + 1;
+                  }
                 }
               }
-              trgTagRegions.emplace_back(unbalancedOpenTags.back().first, translationTags.size());
+
+              if(!allTgtPoses.empty()) {
+                std::sort(allTgtPoses.begin(),
+                          allTgtPoses.end(),
+                          [](const std::pair<size_t, float>& a, const std::pair<size_t, float>& b) {
+                            return a.first < b.first;
+                          });
+                auto bestContiguousStart = allTgtPoses.begin();
+                size_t bestContiguousLength = 1;
+                size_t bestContiguousCoverage = 1;
+                float bestContiguousScore = bestContiguousStart->second;
+                auto curContiguousStart = bestContiguousStart;
+                float curContiguousScore = bestContiguousScore;
+                size_t curContiguousCoverage = 1;
+                minTgtPos = (size_t)-1;
+                maxTgtPos = (size_t)-1;
+                for(auto it = std::next(allTgtPoses.begin());; ++it) {
+                  if(it == allTgtPoses.end() || it->first > std::prev(it)->first + 2) {
+                    if(curContiguousScore > bestContiguousScore
+                       || (curContiguousScore == bestContiguousScore
+                           && curContiguousCoverage > bestContiguousCoverage)) {
+                      bestContiguousCoverage = curContiguousCoverage;
+                      bestContiguousStart = curContiguousStart;
+                      bestContiguousScore = curContiguousScore;
+                      bestContiguousLength = std::distance(curContiguousStart, it);
+                    }
+                    if(curContiguousScore > 0.8f
+                       || (curContiguousCoverage > 1 && curContiguousScore > 0.5f)) {
+                      maxTgtPos = std::prev(it)->first + 1;
+                      if(minTgtPos == (size_t)-1) {
+                        minTgtPos = curContiguousStart->first;
+                      }
+                    }
+                    if(it == allTgtPoses.end()) {
+                      break;
+                    }
+                    curContiguousStart = it;
+                    curContiguousScore = 0.f;
+                  }
+                  curContiguousCoverage = it->first - curContiguousStart->first + 1;
+                  curContiguousScore += it->second;
+                }
+
+                size_t bestContiguousTgtPos
+                    = std::next(bestContiguousStart, bestContiguousLength - 1)->first + 1;
+                if(minTgtPos == (size_t)-1) {
+                  minTgtPos = bestContiguousStart->first;
+                  maxTgtPos = bestContiguousTgtPos;
+                } else if(bestContiguousTgtPos > maxTgtPos) {
+                  maxTgtPos = bestContiguousTgtPos;
+                }
+              }
+
+              // do not set maxTgtPos so that it encloses the EOS token
+              if(maxTgtPos == words.size()) {
+                --maxTgtPos;
+              }
+            }
+          }
+        } else {
+          checkForRegionConflict = true;
+        }
+
+        if(checkForRegionConflict) {
+          // check that the chosen region doesn't overlap with other regions, causing bad syntax
+          // also don't want tags nested within tags they weren't nested in on the source
+          bool regionConflict = false;
+          for(const auto& existingRegion : trgTagRegions) {
+            if(existingRegion.first > unbalancedOpenTags.back().first) {
+              // nested
+              continue;
+            }
+            size_t existingRegionMinTgtPos
+                = translationTags[existingRegion.first].tagPosition_.pos_;
+            size_t existingRegionMaxTgtPos
+                = (existingRegion.second < translationTags.size())
+                      ? translationTags[existingRegion.second].tagPosition_.pos_
+                      : existingRegionMinTgtPos;
+            // if the new region would cause an overlap and bad syntax then move one end of it so
+            // it borders rather than overlaps
+            if(minTgtPos <= existingRegionMinTgtPos && maxTgtPos > existingRegionMinTgtPos
+               && maxTgtPos <= existingRegionMaxTgtPos) {
+              maxTgtPos = existingRegionMinTgtPos;
+            } else if(minTgtPos < existingRegionMaxTgtPos && minTgtPos >= existingRegionMinTgtPos
+                      && maxTgtPos >= existingRegionMaxTgtPos) {
+              minTgtPos = existingRegionMaxTgtPos;
+            } else if(minTgtPos < existingRegionMaxTgtPos
+                      && maxTgtPos > existingRegionMinTgtPos) {  // nested or is nesting
+              regionConflict = true;
+              break;
+            }
+          }
+
+          if(!regionConflict) {
+            std::ptrdiff_t span = maxTgtPos - minTgtPos + 1;
+            translationTags[unbalancedOpenTags.back().first].tagPosition_.pos_ = minTgtPos;
+            translationTags[unbalancedOpenTags.back().first].tagPosition_.span_ = span;
+            for(size_t t = unbalancedOpenTags.back().first + 1; t < translationTags.size(); ++t) {
+              translationTags[t].nests_.emplace_back(
+                  unbalancedOpenTags.back().first, minTgtPos, span);
+              // put tags that were placed at the end back to within the nest (at the end of the
+              // nest)
+              if(translationTags[t].tagPosition_.pos_ > maxTgtPos) {
+                translationTags[t].tagPosition_.pos_ = maxTgtPos;
+              }
+            }
+            trgTagRegions.emplace_back(unbalancedOpenTags.back().first, translationTags.size());
+            if(markupTag->type() == TagType::CLOSE_TAG) {
               translationTags.emplace_back(
                   lineTag, unbalancedOpenTags.back().first, maxTgtPos, minTgtPos - maxTgtPos - 1);
             } else {
-              // place these open/close tags at the end
-              // put tags that were nested on the source at the end also so they remain nested
-              for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
-                translationTags[t].tagPosition_.pos_ = words.size();
-                translationTags[t].tagPosition_.span_
-                    = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
-                if(t > unbalancedOpenTags.back().first) {
-                  translationTags[t].nests_.emplace_back(
-                      unbalancedOpenTags.back().first, words.size(), 1);
-                }
+              trgTagRegions.back().second = (size_t)-1;
+            }
+          } else {
+            // place these open/close tags at the end
+            // put tags that were nested on the source at the end also so they remain nested
+            for(size_t t = unbalancedOpenTags.back().first; t < translationTags.size(); ++t) {
+              translationTags[t].tagPosition_.pos_ = words.size();
+              translationTags[t].tagPosition_.span_
+                  = (translationTags[t].tagPosition_.span_ > 0) ? 1 : -1;
+              if(t > unbalancedOpenTags.back().first) {
+                translationTags[t].nests_.emplace_back(
+                    unbalancedOpenTags.back().first, words.size(), 1);
               }
+            }
+
+            if(markupTag->type() == TagType::CLOSE_TAG) {
               translationTags.emplace_back(
                   lineTag, unbalancedOpenTags.back().first, words.size(), -1);
             }
@@ -695,6 +711,13 @@ Words reinsertTags(const Words& words,
       for(size_t t = u->first + 1; t < translationTags.size(); ++t) {
         translationTags[t].nests_.push_back(translationTags[u->first].tagPosition_);
       }
+    }
+  }
+
+  // make sure positions are before EOS token; those that are past were those that couldn't be placed
+  for(auto& t : translationTags) {
+    if(t.tagPosition_.pos_ == words.size()) {
+      t.tagPosition_.pos_ = words.size() - 1;
     }
   }
 
