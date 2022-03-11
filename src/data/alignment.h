@@ -72,7 +72,9 @@ Words reinsertTags(const Words& words,
                    const SoftAlignment& align,
                    const std::vector<std::pair<Word, size_t>>& lineTags,
                    bool lineSpaceSymbolStart,
-                   bool translationSpaceSymbolStart, bool entitizeTags);
+                   bool translationSpaceSymbolStart,
+                   bool entitizeTags,
+                   InputFormat inputFormat);
 
 }  // namespace data
 }  // namespace marian
