@@ -330,7 +330,8 @@ public:
                                              batch->front()->getSentenceTags()[no],
                                              batch->front()->getSentenceSpaceSymbolStarts()[no],
                                              subBatch->getSentenceSpaceSymbolStarts()[no],
-                                             entitizeTags);
+                                             entitizeTags,
+                                             inputFormat);
     return vocab->decode(wordsWithTags, true, inputFormat, entitizeTags);
   }
 };
