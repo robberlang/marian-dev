@@ -1008,15 +1008,19 @@ Words reinsertTags(const Words& words,
     }
   }
 
-  std::stable_sort(translationTags.begin(), translationTags.end());
-
-  // make sure positions are before EOS token; those that are past were those that couldn't be
-  // placed
+  // make sure positions are before EOS token; those that are past were those that couldn't be placed
   for(auto& t : translationTags) {
     if(t.tagPosition_.pos_ == words.size()) {
       t.tagPosition_.pos_ = words.size() - 1;
+      for(auto& n : t.nests_) {
+        if(n.pos_ == words.size()) {
+          n.pos_ = words.size() - 1;
+        }
+      }
     }
   }
+
+  std::stable_sort(translationTags.begin(), translationTags.end());
 
   auto w = words.begin();
   for(auto t = translationTags.begin(); t != translationTags.end(); ++t) {
