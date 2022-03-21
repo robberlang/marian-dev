@@ -678,7 +678,7 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
   cli.add<bool>("--word-scores",
       "Print word-level scores. One score per subword unit, not normalized even if --normalize");
   cli.add<bool>("--score",
-      "Print score.");
+      "Print score");
   cli.add<bool>("--word-counts",
       "Print source and target word counts");
 #ifdef USE_SENTENCEPIECE
