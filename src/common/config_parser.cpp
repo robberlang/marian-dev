@@ -681,6 +681,8 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
     ->implicit_val("hard");
   cli.add<bool>("--word-scores",
       "Print word-level scores");
+  cli.add<bool>("--score",
+      "Print score");
   cli.add<bool>("--word-counts",
       "Print source and target word counts");
 #ifdef USE_SENTENCEPIECE
@@ -755,8 +757,8 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
   cli.add<bool>("--entitize-tags",
       "Entitize tags. Assumes that training was done on entitized tags");
   cli.add<std::string>("--alignment",
-     "Return word alignments. Possible values: 0.0-1.0, hard, soft")
-     ->implicit_val("hard"),
+     "Return word alignment. Possible values: 0.0-1.0, hard, soft")
+    ->implicit_val("hard");
   cli.add<bool>("--word-scores",
       "Print word-level scores. One score per subword unit, not normalized even if --normalize");
   cli.add<bool>("--translations",

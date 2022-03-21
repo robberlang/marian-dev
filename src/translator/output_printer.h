@@ -24,6 +24,7 @@ public:
         wordScores_(options->get<bool>("word-scores")),
         inputFormat_(ConvertInputFormat(options->get<std::string>("input-format", ""))),
         entitizeTags_(options->get<bool>("entitize-tags")),
+        score_(options->get<bool>("score")),
         wordCounts_(options->get<bool>("word-counts")) {}
 
   template <class OStream>
@@ -101,6 +102,11 @@ public:
     std::string translation = vocab_->decode(wordsWithTags, true, inputFormat_, entitizeTags_);
 
     best1 << translation;
+    if(score_) {
+      float realScore = std::get<2>(result);
+      best1 << " ||| Score=" << realScore;
+    }
+
     if(wordCounts_)
       best1 << " ||| WordCounts=" << history->getNumSrcWords() << ',' << words.size();
 
@@ -124,7 +130,8 @@ private:
   bool wordScores_{false};         // Whether to print word-level scores or not
   InputFormat inputFormat_{InputFormat::PLAINTEXT};
   bool entitizeTags_{false};
-  bool wordCounts_{false};
+  bool score_{false};              // Whether to print score or not in best1 output
+  bool wordCounts_{false};         // Whether to print source/target word counts or not in best1 output
 
   data::SoftAlignment getSoftAlignment(const Hypothesis::PtrType& hyp);
   // Get word alignment pairs or soft alignment
