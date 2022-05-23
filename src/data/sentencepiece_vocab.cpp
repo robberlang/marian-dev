@@ -210,14 +210,14 @@ public:
     return spm_->IdToPiece(id.toWordIndex());
   }
 
-  static bool checkAndMoveToCloseXliffTag(const std::string& line,
-                                   size_t tagNameStart,
-                                   size_t& tagEnd,
-                                   size_t tagNameLength,
-                                   const std::string& xliffTagName) {
-    if(!line.compare(tagNameStart, tagNameLength, xliffTagName)) {
+  static bool checkAndMoveToCloseTag(const std::string& line,
+                                     size_t tagNameStart,
+                                     size_t& tagEnd,
+                                     size_t tagNameLength,
+                                     const std::string& tagName) {
+    if(!line.compare(tagNameStart, tagNameLength, tagName)) {
       if(line[tagEnd - 1] != '/') {
-        const std::string tagClose = "</" + xliffTagName + ">";
+        const std::string tagClose = "</" + tagName + ">";
         size_t endTagEnd = line.find(tagClose, tagEnd + 1);
         if(endTagEnd != std::string::npos) {
           tagEnd = endTagEnd + tagClose.length() - 1;
@@ -350,6 +350,68 @@ public:
            && unicodecharprops::isUCharAlpha(wrdU.back());
   }
 
+  void encodeMarkupText(const std::string& text,
+                        InputFormat inputFormat,
+                        bool entitizeTags,
+                        char tagSpacing,
+                        bool afterTag,
+                        sentencepiece::normalizer::AddDummyPrefix& addDummyPrefix,
+                        Words& words) const {
+    if(!entitizeTags) {
+      if(addDummyPrefix == sentencepiece::normalizer::AddDummyPrefix::OFF && text.front() == ' ') {
+        addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
+      }
+    } else {
+      if(addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::DEFAULT) {
+        addDummyPrefix = (text.front() != ' ') ? sentencepiece::normalizer::AddDummyPrefix::OFF
+                                               : sentencepiece::normalizer::AddDummyPrefix::ON;
+      }
+    }
+    std::string textPlain = decodeEntities(text, inputFormat);
+    sentencepiece::SentencePieceText spt;
+    spm_->Encode(textPlain, &spt, addDummyPrefix);
+    int numPieces = spt.pieces_size();
+    if(numPieces > 0) {
+      const auto& firstSp = spt.pieces(0);
+      size_t beginOffset = 0;
+      std::string firstSurface(textPlain, beginOffset, firstSp.end() - beginOffset);
+      beginOffset = firstSp.end();
+      Word firstWord(Word::fromWordIndex(firstSp.id(), firstSurface));
+      if(textPlain.front() == ' ' || addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON
+         || !afterTag || !isWordSpaceSymbol(firstWord)) {
+        words.push_back(firstWord);
+      } else {
+        // put the space before the tag since that is where it originates
+        words.emplace(words.end() - 1, firstWord);
+      }
+      for(int k = 1; k < numPieces; ++k) {
+        const auto& sp = spt.pieces(k);
+        std::string surface(textPlain, beginOffset, sp.end() - beginOffset);
+        beginOffset = sp.end();
+        if(k == numPieces - 1 && beginOffset < textPlain.length())
+          surface.append(textPlain, beginOffset);
+        words.push_back(Word::fromWordIndex(sp.id(), surface));
+      }
+    }
+    addDummyPrefix = (!std::isspace(static_cast<unsigned char>(textPlain.back()))
+                      && (tagSpacing & TAGSPACING_WITHIN) == 0)
+                         ? sentencepiece::normalizer::AddDummyPrefix::OFF
+                         : sentencepiece::normalizer::AddDummyPrefix::ON;
+  }
+
+  void encodeSpecialSymbol(const std::string& symbol, Words& words) const {
+    sentencepiece::SentencePieceText spt;
+    spm_->Encode(symbol, &spt, sentencepiece::normalizer::AddDummyPrefix::OFF);
+    if(spt.pieces_size() == 0) {
+      assert(false);
+    } else {
+      const auto& pieces = spt.pieces();
+      for(auto sp = pieces.begin(); sp != pieces.end(); ++sp) {
+        words.push_back(Word::fromWordIndex(sp->id(), sp->surface()));
+      }
+    }
+  }
+
   Words encode(const std::string& line,
                bool addEOS,
                bool inference,
@@ -368,10 +430,10 @@ public:
           TagType tagType = TagType::NONE;
           char tagSpacing = TAGSPACING_NONE;
           size_t r = p;
+          std::unique_ptr<std::pair<std::string, std::string>> terminologyConstraint;
           if(p != std::string::npos) {
             std::vector<std::pair<std::string, std::string>> attributes;
-            r = tagfinder::findTagEnd(
-                line, p, (inputFormat == InputFormat::XLIFF1) ? &attributes : nullptr);
+            r = tagfinder::findTagEnd(line, p, &attributes);
             if(inputFormat == InputFormat::HTML && p + 3 < line.length() && line[p + 1] == '!'
                && line[p + 2] == '-' && line[p + 3] == '-') {
               // a comment
@@ -394,16 +456,14 @@ public:
                 size_t t = line.find_first_of(" \t\r\n/>", tagNameStart);
                 size_t tagNameLength = t - tagNameStart;
                 if(inputFormat == InputFormat::XLIFF1) {
-                  if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "bpt")
-                     || checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "bx")) {
+                  if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "bpt")
+                     || checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "bx")) {
                     tagType = TagType::OPEN_TAG;
-                  } else if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "ept")
-                            || checkAndMoveToCloseXliffTag(
-                                line, tagNameStart, r, tagNameLength, "ex")) {
+                  } else if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "ept")
+                            || checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "ex")) {
                     tagType = TagType::CLOSE_TAG;
-                  } else if(checkAndMoveToCloseXliffTag(line, tagNameStart, r, tagNameLength, "ph")
-                            || checkAndMoveToCloseXliffTag(
-                                line, tagNameStart, r, tagNameLength, "x")) {
+                  } else if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "ph")
+                            || checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "x")) {
                     tagType = TagType::EMPTY_TAG;
                     for(const auto& att : attributes) {
                       if(att.first == "ctype") {
@@ -422,59 +482,40 @@ public:
                     tagType = TagType::EMPTY_TAG;
                   }
                 }
-              }
 
-              if(tagType == TagType::NONE) {
-                tagType = (line[r - 1] != '/') ? TagType::OPEN_TAG : TagType::EMPTY_TAG;
+                if(tagType == TagType::NONE) {
+                  static std::string dictTagName = "mn:dict";
+                  tagType = (line[r - 1] != '/') ? TagType::OPEN_TAG : TagType::EMPTY_TAG;
+                  if(tagType == TagType::OPEN_TAG) {
+                    size_t tagContentStart = r + 1;
+                    if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, dictTagName)) {
+                      for(const auto& att : attributes) {
+                        if(att.first == "translation") {
+                          std::string term(line,
+                                           tagContentStart,
+                                           r - dictTagName.length() - 2 - tagContentStart);
+                          terminologyConstraint.reset(new std::pair<std::string, std::string>(
+                              " " + term, " " + att.second));
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
-          std::string prefix;
+          bool emptyPrefix = true;
           if(q < line.size() && p > q) {
-            prefix.assign(line, q, p - q);
-            if(!entitizeTags) {
-              if(addDummyPrefix == sentencepiece::normalizer::AddDummyPrefix::OFF
-                 && prefix.front() == ' ') {
-                addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
-              }
-            } else {
-              if(addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::DEFAULT) {
-                addDummyPrefix = (prefix.front() != ' ')
-                                     ? sentencepiece::normalizer::AddDummyPrefix::OFF
-                                     : sentencepiece::normalizer::AddDummyPrefix::ON;
-              }
-            }
-            prefix = decodeEntities(prefix, inputFormat);
-            sentencepiece::SentencePieceText spt;
-            spm_->Encode(prefix, &spt, addDummyPrefix);
-            int numPieces = spt.pieces_size();
-            if(numPieces > 0) {
-              const auto& firstSp = spt.pieces(0);
-              size_t beginOffset = 0;
-              std::string firstSurface(prefix, beginOffset, firstSp.end() - beginOffset);
-              beginOffset = firstSp.end();
-              Word firstWord(Word::fromWordIndex(firstSp.id(), firstSurface));
-              if(prefix.front() == ' '
-                 || addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON || words.empty()
-                 || !isWordSpaceSymbol(firstWord)) {
-                words.push_back(firstWord);
-              } else {
-                // put the space before the tag since that is where it originates
-                words.emplace(words.end() - 1, firstWord);
-              }
-              for(int k = 1; k < numPieces; ++k) {
-                const auto& sp = spt.pieces(k);
-                std::string surface(prefix, beginOffset, sp.end() - beginOffset);
-                beginOffset = sp.end();
-                if(k == numPieces - 1 && beginOffset < prefix.length())
-                  surface.append(prefix, beginOffset);
-                words.push_back(Word::fromWordIndex(sp.id(), surface));
-              }
-            }
-            addDummyPrefix = (!std::isspace(static_cast<unsigned char>(prefix.back()))
-                              && (tagSpacing & TAGSPACING_WITHIN) == 0)
-                                 ? sentencepiece::normalizer::AddDummyPrefix::OFF
-                                 : sentencepiece::normalizer::AddDummyPrefix::ON;
+            std::string prefix(line, q, p - q);
+            emptyPrefix = prefix.empty();
+            encodeMarkupText(prefix,
+                             inputFormat,
+                             entitizeTags,
+                             tagSpacing,
+                             !words.empty(),
+                             addDummyPrefix,
+                             words);
           } else if(entitizeTags && !words.empty()) {
             addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::OFF;
           }
@@ -483,43 +524,64 @@ public:
             break;
 
           q = r;
-          if(p > 0 && std::isspace(static_cast<unsigned char>(line[p - 1]))) {
-            tagSpacing |= TAGSPACING_BEFORE;
-          }
-
-          if(q + 1 < line.length() && std::isspace(static_cast<unsigned char>(line[q + 1]))) {
-            tagSpacing |= TAGSPACING_AFTER;
-            if(prefix.empty() && !entitizeTags) {
-              for(auto it = words.rbegin(); it != words.rend(); ++it) {
-                auto& markupTag = it->getMarkupTag();
-                if(!markupTag) {
-                  break;
-                }
-                markupTag->spacing() |= TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG;
-              }
-            }
-          }
-
-          if(!entitizeTags) {
-            if(prefix.empty() && !words.empty() && words.back().getMarkupTag()
-               && ((words.back().getMarkupTag()->spacing() & TAGSPACING_BEFORE) != 0
-                   || (words.back().getMarkupTag()->spacing()
-                       & TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG)
-                          != 0)) {
-              tagSpacing |= TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG;
-            }
-            words.push_back(Word::fromWordIndexAndTag(
-                (std::size_t)-1, line.substr(p, q - p + 1), tagType, tagSpacing));
+          if(terminologyConstraint) {
+            encodeSpecialSymbol("<S>", words);
+            sentencepiece::normalizer::AddDummyPrefix adpTemp = addDummyPrefix;
+            encodeMarkupText(terminologyConstraint->first,
+                             inputFormat,
+                             entitizeTags,
+                             tagSpacing,
+                             false,
+                             addDummyPrefix,
+                             words);
+            encodeSpecialSymbol("<C>", words);
+            encodeMarkupText(terminologyConstraint->second,
+                             inputFormat,
+                             entitizeTags,
+                             tagSpacing,
+                             false,
+                             adpTemp,
+                             words);
+            encodeSpecialSymbol("</C>", words);
           } else {
-            if(!prefix.empty() || words.empty() || !words.back().getMarkupTag()) {
-              words.push_back(Word::fromWordIndexAndTag(
-                  (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType, tagSpacing));
-            } else {
-              auto& markupTag = words.back().getMarkupTag();
-              if((tagSpacing & TAGSPACING_AFTER) != 0) {
-                markupTag->spacing() |= TAGSPACING_AFTER;
+            if(p > 0 && std::isspace(static_cast<unsigned char>(line[p - 1]))) {
+              tagSpacing |= TAGSPACING_BEFORE;
+            }
+
+            if(q + 1 < line.length() && std::isspace(static_cast<unsigned char>(line[q + 1]))) {
+              tagSpacing |= TAGSPACING_AFTER;
+              if(emptyPrefix && !entitizeTags) {
+                for(auto it = words.rbegin(); it != words.rend(); ++it) {
+                  auto& markupTag = it->getMarkupTag();
+                  if(!markupTag) {
+                    break;
+                  }
+                  markupTag->spacing() |= TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG;
+                }
               }
-              markupTag->tag() += line.substr(p, q - p + 1);
+            }
+
+            if(!entitizeTags) {
+              if(emptyPrefix && !words.empty() && words.back().getMarkupTag()
+                 && ((words.back().getMarkupTag()->spacing() & TAGSPACING_BEFORE) != 0
+                     || (words.back().getMarkupTag()->spacing()
+                         & TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG)
+                            != 0)) {
+                tagSpacing |= TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG;
+              }
+              words.push_back(Word::fromWordIndexAndTag(
+                  (std::size_t)-1, line.substr(p, q - p + 1), tagType, tagSpacing));
+            } else {
+              if(!emptyPrefix || words.empty() || !words.back().getMarkupTag()) {
+                words.push_back(Word::fromWordIndexAndTag(
+                    (std::size_t)addDummyPrefix, line.substr(p, q - p + 1), tagType, tagSpacing));
+              } else {
+                auto& markupTag = words.back().getMarkupTag();
+                if((tagSpacing & TAGSPACING_AFTER) != 0) {
+                  markupTag->spacing() |= TAGSPACING_AFTER;
+                }
+                markupTag->tag() += line.substr(p, q - p + 1);
+              }
             }
           }
           p = ++q;
