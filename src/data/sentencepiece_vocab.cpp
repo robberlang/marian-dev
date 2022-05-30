@@ -43,6 +43,11 @@ private:
   // Keeps sentences segmented into subword units
   bool keepEncoded_{false};
 
+  Word termTokenS_;
+  Word termTokenOpenC_;
+  Word termTokenCloseC_;
+  bool hasTerminologyConstraints_{false};
+
   // Sample from one file, based on first algorithm from:
   // https://en.wikipedia.org/wiki/Reservoir_sampling
   void reservoirSampling(std::vector<std::string>& sample, size_t& seenLines,
@@ -399,17 +404,13 @@ public:
                          : sentencepiece::normalizer::AddDummyPrefix::ON;
   }
 
-  void encodeSpecialSymbol(const std::string& symbol, Words& words) const {
+  Word encodeSpecialSymbol(const std::string& symbol) const {
     sentencepiece::SentencePieceText spt;
-    spm_->Encode(symbol, &spt, sentencepiece::normalizer::AddDummyPrefix::OFF);
-    if(spt.pieces_size() == 0) {
-      assert(false);
-    } else {
-      const auto& pieces = spt.pieces();
-      for(auto sp = pieces.begin(); sp != pieces.end(); ++sp) {
-        words.push_back(Word::fromWordIndex(sp->id(), sp->surface()));
-      }
+    int pieceId = spm_->PieceToId(symbol);
+    if(pieceId != spm_->unk_id()) {
+      return Word::fromWordIndex(pieceId, symbol);
     }
+    return Word();
   }
 
   Words encode(const std::string& line,
@@ -525,24 +526,36 @@ public:
 
           q = r;
           if(terminologyConstraint) {
-            encodeSpecialSymbol("<S>", words);
-            sentencepiece::normalizer::AddDummyPrefix adpTemp = addDummyPrefix;
-            encodeMarkupText(terminologyConstraint->first,
-                             inputFormat,
-                             entitizeTags,
-                             tagSpacing,
-                             false,
-                             addDummyPrefix,
-                             words);
-            encodeSpecialSymbol("<C>", words);
-            encodeMarkupText(terminologyConstraint->second,
-                             inputFormat,
-                             entitizeTags,
-                             tagSpacing,
-                             false,
-                             adpTemp,
-                             words);
-            encodeSpecialSymbol("</C>", words);
+            if(hasTerminologyConstraints_) {
+              words.push_back(termTokenS_);
+              sentencepiece::normalizer::AddDummyPrefix adpTemp = addDummyPrefix;
+              encodeMarkupText(terminologyConstraint->first,
+                               inputFormat,
+                               entitizeTags,
+                               tagSpacing,
+                               false,
+                               addDummyPrefix,
+                               words);
+              words.push_back(termTokenOpenC_);
+              encodeMarkupText(terminologyConstraint->second,
+                               inputFormat,
+                               entitizeTags,
+                               tagSpacing,
+                               false,
+                               adpTemp,
+                               words);
+              words.push_back(termTokenCloseC_);
+            } else {
+              // terminology constraint specified but will be ignored since vocab model has no
+              // capability for it
+              encodeMarkupText(terminologyConstraint->first,
+                               inputFormat,
+                               entitizeTags,
+                               tagSpacing,
+                               false,
+                               addDummyPrefix,
+                               words);
+            }
           } else {
             if(p > 0 && std::isspace(static_cast<unsigned char>(line[p - 1]))) {
               tagSpacing |= TAGSPACING_BEFORE;
@@ -1172,6 +1185,12 @@ public:
              "SentencePiece vocabulary error: {}",
              status.ToString());
 
+    termTokenS_ = encodeSpecialSymbol("<S>");
+    termTokenOpenC_ = encodeSpecialSymbol("<C>");
+    termTokenCloseC_ = encodeSpecialSymbol("</C>");
+    hasTerminologyConstraints_ = (termTokenS_.toWordIndex() != (WordIndex)-1
+                                  && termTokenOpenC_.toWordIndex() != (WordIndex)-1
+                                  && termTokenCloseC_.toWordIndex() != (WordIndex)-1);
     return spm_->GetPieceSize();
   }
 
