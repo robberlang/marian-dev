@@ -101,7 +101,6 @@ public:
   void setIsSpaceSymbol(bool isSpaceSymbol) { isSpaceSymbol_ = isSpaceSymbol; }
   bool isSpecialSymbol() const { return isSpecialSymbol_; }
   void setIsSpecialSymbol(bool isSpecialSymbol) { isSpecialSymbol_ = isSpecialSymbol; }
-  bool isSpaceOrSpecialSymbol() const { return isSpaceSymbol_ || isSpecialSymbol_; }
   const Ptr<MarkupTag>& getMarkupTag() const { return markupTag_; };
   const Ptr<std::string>& getSurface() const { return surface_; };
   std::string toString() const { return std::to_string(wordId_); }
