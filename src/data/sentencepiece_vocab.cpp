@@ -46,6 +46,7 @@ private:
   Word termTokenS_;
   Word termTokenOpenC_;
   Word termTokenCloseC_;
+  Word spaceToken_;
   bool hasTerminologyConstraints_{false};
 
   // Sample from one file, based on first algorithm from:
@@ -207,7 +208,7 @@ public:
   }
 
   Word operator[](const std::string& token) const override {
-    return Word::fromWordIndex(spm_->PieceToId(token));
+    return Word::fromWordIndex(spm_->PieceToId(token), token);
   }
 
   const std::string& operator[](const Word& id) const override {
@@ -335,10 +336,7 @@ public:
   }
 
   bool isWordSpaceSymbol(const Word& word) const {
-    const auto& wordStr = (*this)[word];
-    // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
-    return (wordStr.size() == 3 && wordStr[0] == (char)0xe2 && wordStr[1] == (char)0x96
-            && wordStr[2] == (char)0x81);
+    return (word == spaceToken_);
   }
 
   bool wordStartsWithAlpha(const Word& word) const {
@@ -360,6 +358,7 @@ public:
                         bool entitizeTags,
                         char tagSpacing,
                         bool afterTag,
+                        bool specialSymbols,
                         sentencepiece::normalizer::AddDummyPrefix& addDummyPrefix,
                         Words& words) const {
     if(!entitizeTags) {
@@ -381,7 +380,7 @@ public:
       size_t beginOffset = 0;
       std::string firstSurface(textPlain, beginOffset, firstSp.end() - beginOffset);
       beginOffset = firstSp.end();
-      Word firstWord(Word::fromWordIndex(firstSp.id(), firstSurface));
+      Word firstWord(Word::fromWordIndex(firstSp.id(), firstSurface, false, specialSymbols));
       if(textPlain.front() == ' ' || addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON
          || !afterTag || !isWordSpaceSymbol(firstWord)) {
         words.push_back(firstWord);
@@ -395,7 +394,7 @@ public:
         beginOffset = sp.end();
         if(k == numPieces - 1 && beginOffset < textPlain.length())
           surface.append(textPlain, beginOffset);
-        words.push_back(Word::fromWordIndex(sp.id(), surface));
+        words.push_back(Word::fromWordIndex(sp.id(), surface, false, specialSymbols));
       }
     }
     addDummyPrefix = (!std::isspace(static_cast<unsigned char>(textPlain.back()))
@@ -408,7 +407,7 @@ public:
     sentencepiece::SentencePieceText spt;
     int pieceId = spm_->PieceToId(symbol);
     if(pieceId != spm_->unk_id()) {
-      return Word::fromWordIndex(pieceId, symbol);
+      return Word::fromWordIndex(pieceId, symbol, false, true);
     }
     return Word();
   }
@@ -514,7 +513,8 @@ public:
                              inputFormat,
                              entitizeTags,
                              tagSpacing,
-                             !words.empty(),
+                             /*afterTag=*/!words.empty(),
+                             /*specialSymbols=*/false,
                              addDummyPrefix,
                              words);
           } else if(entitizeTags && !words.empty()) {
@@ -527,23 +527,36 @@ public:
           q = r;
           if(terminologyConstraint) {
             if(hasTerminologyConstraints_) {
+              if(addDummyPrefix == sentencepiece::normalizer::AddDummyPrefix::ON) {
+                words.push_back(spaceToken_);
+              }
               words.push_back(termTokenS_);
               sentencepiece::normalizer::AddDummyPrefix adpTemp = addDummyPrefix;
               encodeMarkupText(terminologyConstraint->first,
                                inputFormat,
                                entitizeTags,
                                tagSpacing,
-                               false,
+                               /*afterTag=*/false,
+                               /*specialSymbols=*/true,
                                addDummyPrefix,
                                words);
+              bool needSpace = (adpTemp == sentencepiece::normalizer::AddDummyPrefix::ON
+                                || adpTemp == sentencepiece::normalizer::AddDummyPrefix::DEFAULT);
+              if(needSpace) {
+                words.push_back(spaceToken_);
+              }
               words.push_back(termTokenOpenC_);
               encodeMarkupText(terminologyConstraint->second,
                                inputFormat,
                                entitizeTags,
                                tagSpacing,
-                               false,
+                               /*afterTag=*/false,
+                               /*specialSymbols=*/false,
                                adpTemp,
                                words);
+              if(needSpace) {
+                words.push_back(spaceToken_);
+              }
               words.push_back(termTokenCloseC_);
             } else {
               // terminology constraint specified but will be ignored since vocab model has no
@@ -552,7 +565,8 @@ public:
                                inputFormat,
                                entitizeTags,
                                tagSpacing,
-                               false,
+                               /*afterTag=*/ false,
+                               /*specialSymbols=*/false,
                                addDummyPrefix,
                                words);
             }
@@ -1171,6 +1185,19 @@ public:
     return spm_->GetPieceSize();
   }
 
+  void initializeSpecialSymbols() {
+    termTokenS_ = encodeSpecialSymbol("<S>");
+    termTokenOpenC_ = encodeSpecialSymbol("<C>");
+    termTokenCloseC_ = encodeSpecialSymbol("</C>");
+    hasTerminologyConstraints_ = (termTokenS_.toWordIndex() != (WordIndex)-1
+                                  && termTokenOpenC_.toWordIndex() != (WordIndex)-1
+                                  && termTokenCloseC_.toWordIndex() != (WordIndex)-1);
+    // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
+    const char spaceSymbol[] = {(char)0xe2, (char)0x96, (char)0x81, 0x00};
+    spaceToken_ = (*this)[(std::string(spaceSymbol))];
+    spaceToken_.setIsSpecialSymbol(true);
+  }
+
   size_t load(const std::string& vocabPath, size_t /*maxSize*/) override {
     LOG(info, "[data] Loading SentencePiece vocabulary from file {}", vocabPath);
 
@@ -1184,13 +1211,7 @@ public:
     ABORT_IF(!status.ok(),
              "SentencePiece vocabulary error: {}",
              status.ToString());
-
-    termTokenS_ = encodeSpecialSymbol("<S>");
-    termTokenOpenC_ = encodeSpecialSymbol("<C>");
-    termTokenCloseC_ = encodeSpecialSymbol("</C>");
-    hasTerminologyConstraints_ = (termTokenS_.toWordIndex() != (WordIndex)-1
-                                  && termTokenOpenC_.toWordIndex() != (WordIndex)-1
-                                  && termTokenCloseC_.toWordIndex() != (WordIndex)-1);
+    initializeSpecialSymbols();
     return spm_->GetPieceSize();
   }
 
@@ -1206,7 +1227,7 @@ public:
     ABORT_IF(!status.ok(),
              "SentencePiece vocabulary error: {}",
              status.ToString());
-
+    initializeSpecialSymbols();
     return spm_->GetPieceSize();
 
   }
