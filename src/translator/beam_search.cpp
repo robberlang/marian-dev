@@ -217,8 +217,10 @@ std::vector<float> BeamSearch::getAlignmentsForHypothesis( // -> P(s|t) for curr
     size_t origMaskIdx = origAttIdx % (batchWidth * origDimBatch); // == batchIdx + (batchSize * srcPos) = flatten [0, s, batch index, 0]
 
     // If the original position is not masked out used the corresponding current attention score.
-    if(batch->front()->mask()[origMaskIdx] != 0)
-      align.emplace_back(alignAll[currentAttIdx]);
+    if(batch->front()->mask()[origMaskIdx] != 0) {
+      align.emplace_back(
+          !batch->front()->data()[origMaskIdx].isSpecialSymbol() ? alignAll[currentAttIdx] : 0.f);
+    }
   }
   return align;
 }

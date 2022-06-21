@@ -59,23 +59,35 @@ public:
 typedef IndexType WordIndex;    // WordIndex is used for words or tokens arranged in consecutive order
 class Word {                    // Word is an abstraction of a unique id, not necessarily consecutive
   WordIndex wordId_;
-  bool isSpaceSymbol_{false};
   Ptr<MarkupTag> markupTag_;
   Ptr<std::string> surface_;
-  explicit Word(std::size_t wordId, bool isSpaceSymbol = false)
-      : wordId_((WordIndex)wordId), isSpaceSymbol_(isSpaceSymbol) {}
-  explicit Word(std::size_t wordId, std::string surface)
-      : wordId_((WordIndex)wordId), surface_(New<std::string>(std::move(surface))) {}
+  bool isSpaceSymbol_{false};
+  bool isSpecialSymbol_{false};
+  explicit Word(std::size_t wordId, bool isSpaceSymbol = false, bool isSpecialSymbol = false)
+      : wordId_((WordIndex)wordId), isSpaceSymbol_(isSpaceSymbol), isSpecialSymbol_(isSpecialSymbol) {}
+  explicit Word(std::size_t wordId,
+                std::string surface,
+                bool isSpaceSymbol = false,
+                bool isSpecialSymbol = false)
+      : wordId_((WordIndex)wordId),
+        surface_(New<std::string>(std::move(surface))),
+        isSpaceSymbol_(isSpaceSymbol),
+        isSpecialSymbol_(isSpecialSymbol) {}
   explicit Word(std::size_t wordId, std::string tag, TagType tagType, char tagSpacing)
       : wordId_((WordIndex)wordId),
         markupTag_(New<MarkupTag>(std::move(tag), tagType, tagSpacing)) {}
 
 public:
-  static Word fromWordIndex(std::size_t wordId, bool isSpaceSymbol = false) {
-    return Word(wordId, isSpaceSymbol);
+  static Word fromWordIndex(std::size_t wordId,
+                            bool isSpaceSymbol = false,
+                            bool isSpecialSymbol = false) {
+    return Word(wordId, isSpaceSymbol, isSpecialSymbol);
   }
-  static Word fromWordIndex(std::size_t wordId, std::string surface) {
-    return Word(wordId, std::move(surface));
+  static Word fromWordIndex(std::size_t wordId,
+                            std::string surface,
+                            bool isSpaceSymbol = false,
+                            bool isSpecialSymbol = false) {
+    return Word(wordId, std::move(surface), isSpaceSymbol, isSpecialSymbol);
   }
   static Word fromWordIndexAndTag(std::size_t wordId,
                                   const std::string& tag,
@@ -87,6 +99,9 @@ public:
   void setWordIndex(WordIndex wordId) { wordId_ = wordId; }
   bool isSpaceSymbol() const { return isSpaceSymbol_; }
   void setIsSpaceSymbol(bool isSpaceSymbol) { isSpaceSymbol_ = isSpaceSymbol; }
+  bool isSpecialSymbol() const { return isSpecialSymbol_; }
+  void setIsSpecialSymbol(bool isSpecialSymbol) { isSpecialSymbol_ = isSpecialSymbol; }
+  bool isSpaceOrSpecialSymbol() const { return isSpaceSymbol_ || isSpecialSymbol_; }
   const Ptr<MarkupTag>& getMarkupTag() const { return markupTag_; };
   const Ptr<std::string>& getSurface() const { return surface_; };
   std::string toString() const { return std::to_string(wordId_); }
