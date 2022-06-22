@@ -829,8 +829,6 @@ public:
               if(sentence[j].getMarkupTag()->type() != TagType::EMPTY_TAG) {
                 if(tagType == TagType::EMPTY_TAG) {
                   tagType = sentence[j].getMarkupTag()->type();
-                } else if(sentence[j].getMarkupTag()->type() != tagType) {
-                  tagType = TagType::NONE;
                 }
               }
               tagSpacing |= sentence[j].getMarkupTag()->spacing();
@@ -845,8 +843,8 @@ public:
                && sentence[j] != getEosId()) {
               if(!spacePrefix[j].empty()) {
                 spaceRequiredBeforeNextWord = spacePrefix[j];
-              } else if(sentenceHasSpaces && tagType != TagType::NONE
-                        && (tagSpacing & TAGSPACING_WITHIN) == 0 && j + 1 < sentence.size()) {
+              } else if(sentenceHasSpaces && (tagSpacing & TAGSPACING_WITHIN) == 0
+                        && j + 1 < sentence.size()) {
                 // prevent the tags from appearing in the middle of the word
                 // sentence has spaces, and the adjacent tags are all open or close (possibly with
                 // self-closing mixed in)
