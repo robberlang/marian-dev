@@ -434,9 +434,10 @@ public:
           if(p != std::string::npos) {
             std::vector<std::pair<std::string, std::string>> attributes;
             r = tagfinder::findTagEnd(line, p, &attributes);
-            if(inputFormat == InputFormat::HTML && p + 3 < line.length() && line[p + 1] == '!'
-               && line[p + 2] == '-' && line[p + 3] == '-') {
-              // a comment
+            // HTML comment or XML declaration?
+            if((inputFormat == InputFormat::HTML && p + 3 < line.length() && line[p + 1] == '!'
+                && line[p + 2] == '-' && line[p + 3] == '-')
+               || (p + 1 < line.length() && line[p + 1] == '?')) {
               tagType = TagType::EMPTY_TAG;
             }
             if(r == std::string::npos) {
