@@ -237,11 +237,10 @@ public:
   }
 
   static bool checkAndMoveToCloseTag(const std::string& line,
-                                     size_t tagNameStart,
+                                     const std::string& tagName,
                                      size_t& tagEnd,
-                                     size_t tagNameLength,
-                                     const std::string& tagName) {
-    if(!line.compare(tagNameStart, tagNameLength, tagName)) {
+                                     const std::string& tagNameToCompare) {
+    if(!tagName.compare(tagNameToCompare)) {
       if(line[tagEnd - 1] != '/') {
         const std::string tagClose = "</" + tagName + ">";
         size_t endTagEnd = line.find(tagClose, tagEnd + 1);
@@ -453,7 +452,8 @@ public:
           std::unique_ptr<std::pair<std::string, std::string>> terminologyConstraint;
           if(p != std::string::npos) {
             std::vector<std::pair<std::string, std::string>> attributes;
-            r = tagfinder::findTagEnd(line, p, &attributes);
+            std::string tagName;
+            r = tagfinder::findTagEnd(line, p, &attributes, &tagName);
             // HTML comment or XML declaration?
             if((inputFormat == InputFormat::HTML && p + 3 < line.length() && line[p + 1] == '!'
                 && line[p + 2] == '-' && line[p + 3] == '-')
@@ -473,18 +473,15 @@ public:
               if(line[p + 1] == '/') {
                 tagType = TagType::CLOSE_TAG;
               } else {
-                size_t tagNameStart = p + 1;
-                size_t t = line.find_first_of(" \t\r\n/>", tagNameStart);
-                size_t tagNameLength = t - tagNameStart;
                 if(inputFormat == InputFormat::XLIFF1) {
-                  if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "bpt")
-                     || checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "bx")) {
+                  if(checkAndMoveToCloseTag(line, tagName, r, "bpt")
+                     || checkAndMoveToCloseTag(line, tagName, r, "bx")) {
                     tagType = TagType::OPEN_TAG;
-                  } else if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "ept")
-                            || checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "ex")) {
+                  } else if(checkAndMoveToCloseTag(line, tagName, r, "ept")
+                            || checkAndMoveToCloseTag(line, tagName, r, "ex")) {
                     tagType = TagType::CLOSE_TAG;
-                  } else if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "ph")
-                            || checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, "x")) {
+                  } else if(checkAndMoveToCloseTag(line, tagName, r, "ph")
+                            || checkAndMoveToCloseTag(line, tagName, r, "x")) {
                     tagType = TagType::EMPTY_TAG;
                     for(const auto& att : attributes) {
                       if(att.first == "ctype") {
@@ -497,9 +494,7 @@ public:
                     }
                   }
                 } else if(inputFormat == InputFormat::HTML) {
-                  if(!line.compare(tagNameStart, tagNameLength, "img")
-                     || !line.compare(tagNameStart, tagNameLength, "br")
-                     || !line.compare(tagNameStart, tagNameLength, "wbr")) {
+                  if(!tagName.compare("img") || !tagName.compare("br") || !tagName.compare("wbr")) {
                     tagType = TagType::EMPTY_TAG;
                   }
                 }
@@ -509,7 +504,7 @@ public:
                   tagType = (line[r - 1] != '/') ? TagType::OPEN_TAG : TagType::EMPTY_TAG;
                   if(tagType == TagType::OPEN_TAG) {
                     size_t tagContentStart = r + 1;
-                    if(checkAndMoveToCloseTag(line, tagNameStart, r, tagNameLength, dictTagName)) {
+                    if(checkAndMoveToCloseTag(line, tagName, r, dictTagName)) {
                       for(const auto& att : attributes) {
                         if(att.first == "translation") {
                           std::string term(line,
@@ -759,7 +754,7 @@ public:
         spacePrefix.reserve(sentence.size());
         std::vector<std::string> spPieces;
         spPieces.reserve(sentence.size());
-        bool sentenceHasSpaces = false;
+        bool keepTagsOutOfWords = false;
         bool firstWordMet = false;
         bool usingSurfaces = false;
         for(size_t i = 0; i < sentence.size(); ++i) {
@@ -792,8 +787,10 @@ public:
             }
             if(!firstWordMet) {
               firstWordMet = true;
-            } else if(!spacePrefix.back().empty()) {
-              sentenceHasSpaces = true;
+            } else if(!keepTagsOutOfWords
+                      && (!spacePrefix.back().empty() || wordStartsWithAlpha(word)
+                          || wordEndsWithAlpha(word))) {
+              keepTagsOutOfWords = true;
             }
           }
         }
@@ -825,10 +822,10 @@ public:
                 ++j) {
               // need to track whether the tags are all of the same type: open or close, empty tags
               // being neutral
-              if(sentence[j].getMarkupTag()->type() != TagType::EMPTY_TAG) {
-                if(tagType == TagType::EMPTY_TAG) {
-                  tagType = sentence[j].getMarkupTag()->type();
-                }
+              if(tagType == TagType::EMPTY_TAG) {
+                tagType = sentence[j].getMarkupTag()->type();
+              } else if(sentence[j].getMarkupTag()->type() != tagType) {
+                tagType = TagType::NONE;
               }
               tagSpacing |= sentence[j].getMarkupTag()->spacing();
             }
@@ -842,14 +839,14 @@ public:
                && sentence[j] != getEosId()) {
               if(!spacePrefix[j].empty()) {
                 spaceRequiredBeforeNextWord = spacePrefix[j];
-              } else if(sentenceHasSpaces && (tagSpacing & TAGSPACING_WITHIN) == 0
+              } else if(keepTagsOutOfWords && (tagSpacing & TAGSPACING_WITHIN) == 0
                         && j + 1 < sentence.size()) {
                 // prevent the tags from appearing in the middle of the word
                 // sentence has spaces, and the adjacent tags are all open or close (possibly with
                 // self-closing mixed in)
                 // if open, move left, if close, move right to where there is a space
                 // deal with everything here:
-                if(tagType != TagType::CLOSE_TAG) {
+                if(word.getMarkupTag()->type() != TagType::CLOSE_TAG) {
                   if(wordStartsWithAlpha(sentence[j])) {
                     done = true;
                     size_t previousWordsEndIdx = spPieces.size();
@@ -1059,7 +1056,7 @@ public:
               do {
                 const auto& markupTag = sentence[k].getMarkupTag();
                 if(!lineHasTrailingSpace) {
-                  if(!spaceNeededBeforeOpenTag.empty()) {
+                  if(!spaceNeededBeforeOpenTag.empty() && markupTag->type() != TagType::CLOSE_TAG) {
                     line += spaceNeededBeforeOpenTag;
                     spaceNeededBeforeOpenTag.clear();
                     if(usingSurfaces) {
