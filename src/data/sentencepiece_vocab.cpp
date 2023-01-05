@@ -403,7 +403,6 @@ public:
   }
 
   Word encodeSpecialSymbol(const std::string& symbol) const {
-    sentencepiece::SentencePieceText spt;
     int pieceId = spm_->PieceToId(symbol);
     if(pieceId != spm_->unk_id()) {
       return Word::fromWordIndex(pieceId, symbol, false, true);
@@ -730,31 +729,61 @@ public:
     return words;
   }
 
-  std::string decode(const Words& sentence,
+  std::string decode(const Words& sentenceIn,
                      bool /*ignoreEOS*/,
                      InputFormat inputFormat,
                      bool entitizeTags) const override {
     std::string line;
     if(keepEncoded_) {  // i.e. keep the sentence segmented into subword units
-      for(const Word& id : sentence)
+      for(const Word& id : sentenceIn)
         line += (!id.getMarkupTag() ? (*this)[id] : id.getMarkupTag()->tag()) + " ";
       line.pop_back();  // trim the trailing whitespace
     } else {
       // convert vector of Word to vector of int
       if(inputFormat == InputFormat::PLAINTEXT) {
         std::vector<int> spmSentence;
-        spmSentence.reserve(sentence.size());
-        for(size_t i = 0; i < sentence.size(); ++i) {
-          const auto& word = sentence[i];
+        spmSentence.reserve(sentenceIn.size());
+        for(size_t i = 0; i < sentenceIn.size(); ++i) {
+          const auto& word = sentenceIn[i];
           WordIndex wordIndex = word.toWordIndex();
           spmSentence.push_back(wordIndex);
         }
         spm_->Decode(spmSentence, &line);
       } else {
+        // first make sure tags do not occur within UTF-8 byte sequences, which would result in
+        // breaking them up and yielding invalid UTF-8 (this can happen only if SentencePiece option
+        // "byte_fallback" is set to true)
+        Words sentence;
+        sentence.reserve(sentenceIn.size());
+        Words byteSequence;
+        for(size_t i = 0; i < sentenceIn.size(); ++i) {
+          const auto& word = sentenceIn[i];
+          bool wordIsByte = false;
+          if(!word.getMarkupTag()) {
+            const std::string& curWord = (*this)[word];
+            if(curWord.length() == 6 && curWord.compare(0, 3, "<0x") == 0 && curWord.back() == '>'
+               && std::isxdigit(static_cast<unsigned char>(curWord[3]))
+               && std::isxdigit(static_cast<unsigned char>(curWord[4]))) {
+              byteSequence.push_back(word);
+              wordIsByte = true;
+            } else if(!byteSequence.empty()) {
+                std::move(byteSequence.begin(), byteSequence.end(), std::back_inserter(sentence));
+                byteSequence.clear();
+            }
+          }
+          if(!wordIsByte) {
+            sentence.push_back(word);
+          }
+        }
+        if(!byteSequence.empty()) {
+          std::move(byteSequence.begin(), byteSequence.end(), std::back_inserter(sentence));
+          byteSequence.clear();
+        }
+
         std::vector<size_t> entitizedTagIndexes;
         std::vector<std::string> spacePrefix;
-        spacePrefix.reserve(sentence.size());
         std::vector<std::string> spPieces;
+        spacePrefix.reserve(sentence.size());
         spPieces.reserve(sentence.size());
         bool keepTagsOutOfWords = false;
         bool firstWordMet = false;
