@@ -727,22 +727,22 @@ public:
     return words;
   }
 
-  std::string decode(const Words& sentence_in,
+  std::string decode(const Words& sentenceIn,
                      bool /*ignoreEOS*/,
                      InputFormat inputFormat,
                      bool entitizeTags) const override {
     std::string line;
     if(keepEncoded_) {  // i.e. keep the sentence segmented into subword units
-      for(const Word& id : sentence_in)
+      for(const Word& id : sentenceIn)
         line += (!id.getMarkupTag() ? (*this)[id] : id.getMarkupTag()->tag()) + " ";
       line.pop_back();  // trim the trailing whitespace
     } else {
       // convert vector of Word to vector of int
       if(inputFormat == InputFormat::PLAINTEXT) {
         std::vector<int> spmSentence;
-        spmSentence.reserve(sentence_in.size());
-        for(size_t i = 0; i < sentence_in.size(); ++i) {
-          const auto& word = sentence_in[i];
+        spmSentence.reserve(sentenceIn.size());
+        for(size_t i = 0; i < sentenceIn.size(); ++i) {
+          const auto& word = sentenceIn[i];
           WordIndex wordIndex = word.toWordIndex();
           spmSentence.push_back(wordIndex);
         }
@@ -752,10 +752,10 @@ public:
         // breaking them up and yielding invalid UTF-8 (this can happen only if SentencePiece option
         // "byte_fallback" is set to true)
         Words sentence;
-        sentence.reserve(sentence_in.size());
+        sentence.reserve(sentenceIn.size());
         Words byteSequence;
-        for(size_t i = 0; i < sentence_in.size(); ++i) {
-          const auto& word = sentence_in[i];
+        for(size_t i = 0; i < sentenceIn.size(); ++i) {
+          const auto& word = sentenceIn[i];
           bool wordIsByte = false;
           if(!word.getMarkupTag()) {
             const std::string& curWord = (*this)[word];
