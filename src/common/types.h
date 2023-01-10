@@ -38,6 +38,8 @@
 #define COMPILE_FP16 0
 #endif
 
+#include <fmt/format.h>
+
 #ifdef _MSC_VER
 // @BUGBUG: Visual Studio somehow fails on template expansions for float16.
 //          To be able to build on Windows, we temporarily disable this, until the greater merge has happened.
@@ -605,3 +607,13 @@ namespace std {
     }
   };
 }
+
+template <>
+struct fmt::formatter<::marian::Type> {
+  auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const ::marian::Type& type, FormatContext& ctx) -> decltype(ctx.out()) {
+    return fmt::format_to(ctx.out(), "{}", (size_t)type);
+  }
+};
