@@ -39,4 +39,10 @@ std::string OutputPrinter::getWordScores(const Hypothesis::PtrType& hyp) {
   return scores.str();
 }
 
+void OutputPrinter::cleanupWhiteSpace(std::string& translation) {
+  for(size_t p = 0; (p = translation.find_first_of("\r\n", p)) != std::string::npos;) {
+    translation[p] = ' ';
+  }
+}
+
 }  // namespace marian
