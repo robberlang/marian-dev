@@ -53,6 +53,7 @@ public:
         std::reverse(wordsWithTags.begin(), wordsWithTags.end());
 
       std::string translation = vocab_->decode(wordsWithTags, true, inputFormat_, entitizeTags_);
+      cleanupWhiteSpace(translation);
       bestn << history->getLineNum() << " ||| " << translation;
 
       if(wordCounts_)
@@ -100,7 +101,7 @@ public:
       std::reverse(wordsWithTags.begin(), wordsWithTags.end());
 
     std::string translation = vocab_->decode(wordsWithTags, true, inputFormat_, entitizeTags_);
-
+    cleanupWhiteSpace(translation);
     best1 << translation;
     if(score_) {
       float realScore = std::get<2>(result);
@@ -138,6 +139,7 @@ private:
   std::string getAlignment(const data::SoftAlignment& align);
   // Get word-level scores
   std::string getWordScores(const Hypothesis::PtrType& hyp);
+  static void cleanupWhiteSpace(std::string& translation);
 
   float getAlignmentThreshold(const std::string& str) {
     try {
