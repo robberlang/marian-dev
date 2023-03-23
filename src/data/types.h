@@ -41,14 +41,23 @@ const char TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG = 0x10;
 
 class MarkupTag {
   std::string tag_;
+  std::string tagIdentifier_;
+  std::string elementContent_;
   TagType type_;
   char spacing_;
 
 public:
-  MarkupTag(std::string tag, TagType type, char spacing)
-      : tag_(std::move(tag)), type_(type), spacing_(spacing) {}
+  MarkupTag(std::string tag, std::string tagIdentifier, TagType type, char spacing)
+      : tag_(std::move(tag)),
+        tagIdentifier_(std::move(tagIdentifier)),
+        type_(type),
+        spacing_(spacing) {}
   const std::string& tag() const { return tag_; }
   std::string& tag() { return tag_; }
+  const std::string& tagIdentifier() const { return tagIdentifier_; }
+  std::string& tagIdentifier() { return tagIdentifier_; }
+  const std::string& elementContent() const { return elementContent_; }
+  std::string& elementContent() { return elementContent_; }
   const TagType& type() const { return type_; }
   TagType& type() { return type_; }
   char spacing() const { return spacing_; }
@@ -73,9 +82,13 @@ class Word {                    // Word is an abstraction of a unique id, not ne
         surface_(New<std::string>(std::move(surface))),
         isSpaceSymbol_(isSpaceSymbol),
         isSpecialSymbol_(isSpecialSymbol) {}
-  explicit Word(std::size_t wordId, std::string tag, TagType tagType, char tagSpacing)
+  explicit Word(std::size_t wordId,
+                std::string tag,
+                std::string tagIdentifier,
+                TagType tagType,
+                char tagSpacing)
       : wordId_((WordIndex)wordId),
-        markupTag_(New<MarkupTag>(std::move(tag), tagType, tagSpacing)) {}
+        markupTag_(New<MarkupTag>(std::move(tag), std::move(tagIdentifier), tagType, tagSpacing)) {}
 
 public:
   static Word fromWordIndex(std::size_t wordId,
@@ -91,9 +104,10 @@ public:
   }
   static Word fromWordIndexAndTag(std::size_t wordId,
                                   const std::string& tag,
+                                  const std::string& tagIdentifier,
                                   TagType tagType,
                                   char tagSpacing) {
-    return Word(wordId, tag, tagType, tagSpacing);
+    return Word(wordId, tag, tagIdentifier, tagType, tagSpacing);
   }
   const WordIndex& toWordIndex() const { return wordId_; }
   void setWordIndex(WordIndex wordId) { wordId_ = wordId; }

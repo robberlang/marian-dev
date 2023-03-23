@@ -1,6 +1,5 @@
 #include "data/alignment.h"
 #include "common/utils.h"
-#include "common/tag_finder.h"
 
 #include <algorithm>
 #include <tuple>
@@ -200,7 +199,7 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
                           Ptr<size_t> closeTagPosition,
                           std::vector<std::pair<size_t, size_t>>& trgTagRegions,
                           size_t thisElementId) {
-  auto curWordAlign = hardAlignment.begin() + curWordAlignIdx;
+  const auto curWordAlign = hardAlignment.begin() + curWordAlignIdx;
   bool checkForRegionConflict = false;
   // minTgtPos will be the position of the opening tag, maxTgtPos will be the position
   // of the closing tag
@@ -297,6 +296,7 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
           maxTgtPos = wordAlign->tgtPos;
         }
 
+        const auto openTagWordAlign = wordAlign;
         size_t minTgtPosNest = -1;
         size_t maxTgtPosNest = 0;
         // if there are tags nested then have them remain nested
@@ -322,6 +322,8 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
           }
         }
 
+        size_t minTgtPosOfAlignments = minTgtPos;
+        size_t maxTgtPosOfAlignments = maxTgtPos;
         if(wordAlign != hardAlignment.end()) {
           // first loop through the clear word alignments (where source position has only one
           // corresponding target position or has target positions that are contiguous) to
@@ -333,6 +335,11 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
             // tgtPoses is the target positions that align with the current source position
             std::vector<std::pair<size_t, float>> tgtPoses;
             tgtPoses.emplace_back(wordAlign->tgtPos, wordAlign->prob);
+            if(wordAlign->tgtPos < minTgtPosOfAlignments) {
+              minTgtPosOfAlignments = wordAlign->tgtPos;
+            } else if(wordAlign->tgtPos + 1 > maxTgtPosOfAlignments) {
+              maxTgtPosOfAlignments = wordAlign->tgtPos + 1;
+            }
             bool contiguous = true;
             for(++wordAlign; wordAlign != curWordAlign && wordAlign->srcPos == srcPos;
                 ++wordAlign) {
@@ -472,6 +479,24 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
               }
             }
           }
+        }
+
+        // look at the words before and after the source region and see if they encompass the
+        // determined target region - if the indication is strong, extend the target region
+        // accordingly
+        if(openTagWordAlign != hardAlignment.begin()) {
+          auto prevWordAlign = std::prev(openTagWordAlign);
+          if(prevWordAlign->srcPos + 1
+                 == translationTags[unbalancedOpenTag.tagIndex_].lineTag_->second
+             && prevWordAlign->tgtPos + 1 < minTgtPos
+             && prevWordAlign->tgtPos + 1 >= minTgtPosOfAlignments) {
+            minTgtPos = prevWordAlign->tgtPos + 1;
+          }
+        }
+
+        if(curWordAlign != hardAlignment.end() && curWordAlign->srcPos == lineTag->second
+           && curWordAlign->tgtPos > maxTgtPos && curWordAlign->tgtPos <= maxTgtPosOfAlignments) {
+          maxTgtPos = curWordAlign->tgtPos;
         }
 
         // do not set maxTgtPos so that it encloses the EOS token
@@ -865,27 +890,7 @@ Words reinsertTags(const Words& words,
       }
     }
 
-    std::string tagIdentifier;
-    if(markupTag->type() != TagType::EMPTY_TAG) {
-      if(inputFormat == InputFormat::XLIFF1) {
-        std::vector<std::pair<std::string, std::string>> attributes;
-        // XLIFF open/close tags (bpt/bx, ept/ex) should have a rid attribute, but use tag name
-        // otherwise (so it works for non-XLIFF tags as well)
-        tagfinder::findTagEnd(markupTag->tag(), 0, &attributes, &tagIdentifier);
-        for(const auto& att : attributes) {
-          if(att.first == "rid") {
-            tagIdentifier = att.second;
-            break;
-          }
-        }
-      } else {
-        tagfinder::findTagEnd(markupTag->tag(),
-                              0,
-                              (std::vector<std::pair<std::string, std::string>>*)nullptr,
-                              &tagIdentifier);
-      }
-    }
-
+    const std::string& tagIdentifier = markupTag->tagIdentifier();
     if(markupTag->type() != TagType::CLOSE_TAG) {
       if(lineTag->second == 0 && markupTag->type() == TagType::EMPTY_TAG) {
         // empty tag at beginning of source
