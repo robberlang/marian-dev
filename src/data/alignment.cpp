@@ -890,7 +890,7 @@ Words reinsertTags(const Words& words,
       }
     }
 
-    const std::string& tagIdentifier = markupTag->tagIdentifier();
+    const std::string& tagIdentifier = markupTag->identifier();
     if(markupTag->type() != TagType::CLOSE_TAG) {
       if(lineTag->second == 0 && markupTag->type() == TagType::EMPTY_TAG) {
         // empty tag at beginning of source

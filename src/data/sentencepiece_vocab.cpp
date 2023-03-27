@@ -399,7 +399,7 @@ public:
   void encodeMarkupText(const std::string& text,
                         InputFormat inputFormat,
                         bool entitizeTags,
-                        char tagSpacing,
+                        unsigned char tagSpacing,
                         bool afterTag,
                         bool specialSymbols,
                         sentencepiece::normalizer::AddDummyPrefix& addDummyPrefix,
@@ -471,7 +471,7 @@ public:
         for(size_t p = 0, q = 0;;) {
           p = tagfinder::findNextTagStart(line, p);
           TagType tagType = TagType::NONE;
-          char tagSpacing = TAGSPACING_NONE;
+          unsigned char tagSpacing = TAGSPACING_NONE;
           size_t r = p;
           std::unique_ptr<std::pair<std::string, std::string>> terminologyConstraint;
           if(p != std::string::npos) {
@@ -549,7 +549,11 @@ public:
           bool emptyPrefix = true;
           if(q < line.size() && p > q) {
             prefix.assign(line, q, p - q);
-            emptyPrefix = false;
+            if(prefix.find_first_not_of(" ") != std::string::npos) {
+              emptyPrefix = false;
+            }
+          }
+          if(!emptyPrefix || (!prefix.empty() && (words.empty() || p == std::string::npos))) {
             encodeMarkupText(prefix,
                              inputFormat,
                              entitizeTags,
@@ -558,7 +562,7 @@ public:
                              /*specialSymbols=*/false,
                              addDummyPrefix,
                              words);
-          } else if((tagSpacing & TAGSPACING_WITHIN) != 0) {
+          } else if((tagSpacing & TAGSPACING_WITHIN) != 0 || !prefix.empty()) {
             addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
           } else if(entitizeTags && !words.empty()) {
             addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::OFF;
@@ -632,13 +636,51 @@ public:
             }
 
             if(!entitizeTags) {
+              std::string tag(line, p, q - p + 1);
+              std::string tagIdentifier = markupTagIdentifier(tag, tagType, inputFormat);
               bool joinTagToPrev = false;
               if(emptyPrefix && !words.empty() && words.back().getMarkupTag()) {
-                if(tagType == TagType::EMPTY_TAG
-                   || words.back().getMarkupTag()->type() == TagType::EMPTY_TAG) {
+                auto& markupTag = words.back().getMarkupTag();
+                if(prefix.empty()
+                   && (tagType == TagType::EMPTY_TAG || markupTag->type() == TagType::EMPTY_TAG)) {
                   joinTagToPrev = true;
-                } else if((words.back().getMarkupTag()->spacing() & TAGSPACING_BEFORE) != 0
-                   || (words.back().getMarkupTag()->spacing()
+                  if(tagType != TagType::EMPTY_TAG) {
+                    markupTag->type() = tagType;
+                    markupTag->identifier() = tagIdentifier;
+                  }
+                } else if(tagType == TagType::CLOSE_TAG && markupTag->type() == TagType::OPEN_TAG
+                          && tagIdentifier == markupTag->identifier()) {
+                  joinTagToPrev = true;
+                  markupTag->type() = TagType::EMPTY_TAG;
+                  if(!prefix.empty()) {
+                    tagSpacing |= TAGSPACING_WITHIN;
+                    if((markupTag->spacing() & TAGSPACING_AFTER) != 0) {
+                      markupTag->spacing() &= ~TAGSPACING_AFTER;
+                    }
+                    if((tagSpacing & TAGSPACING_BEFORE) != 0) {
+                      tagSpacing &= ~TAGSPACING_BEFORE;
+                    }
+                  }
+                  if(words.size() >= 2) {
+                    auto& mt = std::prev(words.end(), 2)->getMarkupTag();
+                    if(mt && (mt->spacing() & TAGSPACING_AFTER) == 0) {
+                      if(!prefix.empty()) {
+                        for(auto it = std::next(words.rbegin()); it != words.rend(); ++it) {
+                          auto& t = it->getMarkupTag();
+                          if(!t) {
+                            break;
+                          }
+                          if((t->spacing() & TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG) != 0) {
+                            t->spacing() &= ~TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG;
+                          }
+                        }
+                      }
+                      mt->tag() += markupTag->tag();
+                      words.pop_back();
+                    }
+                  }
+                } else if((markupTag->spacing() & TAGSPACING_BEFORE) != 0
+                          || (markupTag->spacing()
                        & TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG)
                           != 0) {
                   tagSpacing |= TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG;
@@ -647,24 +689,15 @@ public:
               if(tagType == TagType::EMPTY_TAG && tagSpacing == TAGSPACING_NONE) {
                 addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
               }
-              std::string tag(line, p, q - p + 1);
               if(!joinTagToPrev) {
-                words.push_back(
-                    Word::fromWordIndexAndTag((std::size_t)-1,
-                                              tag,
-                                              markupTagIdentifier(tag, tagType, inputFormat),
-                                              tagType,
-                                              tagSpacing));
+                words.push_back(Word::fromWordIndexAndTag(
+                    (std::size_t)-1, tag, tagIdentifier, tagType, tagSpacing));
               } else {
                 auto& markupTag = words.back().getMarkupTag();
                 markupTag->spacing() |= tagSpacing;
-                if(tagType != TagType::EMPTY_TAG) {
-                  markupTag->type() = tagType;
-                  markupTag->tagIdentifier() = markupTagIdentifier(tag, tagType, inputFormat);
-                }
-                markupTag->tag() += std::move(tag);
+                markupTag->tag() += std::move(prefix) + std::move(tag);
               }
-              if(tagType == TagType::CLOSE_TAG && !prefix.empty()) {
+              if(tagType == TagType::CLOSE_TAG && !emptyPrefix) {
                 auto prevMarkup
                     = std::find_if(std::next(words.rbegin()), words.rend(), [](const Word& word) {
                         return word.getMarkupTag().operator bool();
@@ -672,8 +705,8 @@ public:
                 if(prevMarkup != words.rend()
                    && prevMarkup->getMarkupTag()->type() == TagType::OPEN_TAG
                    && !std::prev(prevMarkup)->getMarkupTag()
-                   && words.back().getMarkupTag()->tagIdentifier()
-                          == prevMarkup->getMarkupTag()->tagIdentifier()) {
+                   && words.back().getMarkupTag()->identifier()
+                          == prevMarkup->getMarkupTag()->identifier()) {
                   words.back().getMarkupTag()->elementContent() = prefix;
                 }
               }
@@ -912,7 +945,7 @@ public:
           } else if(word.toWordIndex() == (WordIndex)-1) {
             // collect all adjacent tags; find next real word
             TagType tagType = word.getMarkupTag()->type();
-            char tagSpacing = word.getMarkupTag()->spacing();
+            unsigned char tagSpacing = word.getMarkupTag()->spacing();
             size_t j = i + 1;
             for(; j < sentence.size() && sentence[j].getMarkupTag()
                   && sentence[j].toWordIndex() == (WordIndex)-1;
@@ -1197,7 +1230,7 @@ public:
             bool massaged = false;
             if(word.getMarkupTag()->type() == TagType::CLOSE_TAG
                && !word.getMarkupTag()->elementContent().empty() && prevMarkupTag
-               && prevMarkupTag->tagIdentifier() == word.getMarkupTag()->tagIdentifier()
+               && prevMarkupTag->identifier() == word.getMarkupTag()->identifier()
                && word.getMarkupTag()->elementContent().length() <= leftPart.length()) {
               size_t contentPos = leftPart.find(word.getMarkupTag()->elementContent());
               if(contentPos != std::string::npos) {
