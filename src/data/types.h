@@ -39,36 +39,36 @@ enum class TagType : char {
   EMPTY_TAG = 3,
 };
 
-const char TAGSPACING_NONE = 0x0;
-const char TAGSPACING_BEFORE = 0x1;
-const char TAGSPACING_AFTER = 0x2;
-const char TAGSPACING_WITHIN = 0x4;
-const char TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG = 0x8;
-const char TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG = 0x10;
+const unsigned char TAGSPACING_NONE = 0x0;
+const unsigned char TAGSPACING_BEFORE = 0x1;
+const unsigned char TAGSPACING_AFTER = 0x2;
+const unsigned char TAGSPACING_WITHIN = 0x4;
+const unsigned char TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG = 0x8;
+const unsigned char TAGSPACING_AFTER_IMMEDIATE_FOLLOWING_TAG = 0x10;
 
 class MarkupTag {
   std::string tag_;
-  std::string tagIdentifier_;
+  std::string identifier_;
   std::string elementContent_;
   TagType type_;
-  char spacing_;
+  unsigned char spacing_;
 
 public:
-  MarkupTag(std::string tag, std::string tagIdentifier, TagType type, char spacing)
+  MarkupTag(std::string tag, std::string identifier, TagType type, unsigned char spacing)
       : tag_(std::move(tag)),
-        tagIdentifier_(std::move(tagIdentifier)),
+        identifier_(std::move(identifier)),
         type_(type),
         spacing_(spacing) {}
   const std::string& tag() const { return tag_; }
   std::string& tag() { return tag_; }
-  const std::string& tagIdentifier() const { return tagIdentifier_; }
-  std::string& tagIdentifier() { return tagIdentifier_; }
+  const std::string& identifier() const { return identifier_; }
+  std::string& identifier() { return identifier_; }
   const std::string& elementContent() const { return elementContent_; }
   std::string& elementContent() { return elementContent_; }
   const TagType& type() const { return type_; }
   TagType& type() { return type_; }
-  char spacing() const { return spacing_; }
-  char& spacing() { return spacing_; }
+  unsigned char spacing() const { return spacing_; }
+  unsigned char& spacing() { return spacing_; }
 };
 
 // Type for all vocabulary items, based on IndexType
@@ -93,7 +93,7 @@ class Word {                    // Word is an abstraction of a unique id, not ne
                 std::string tag,
                 std::string tagIdentifier,
                 TagType tagType,
-                char tagSpacing)
+                unsigned char tagSpacing)
       : wordId_((WordIndex)wordId),
         markupTag_(New<MarkupTag>(std::move(tag), std::move(tagIdentifier), tagType, tagSpacing)) {}
 
@@ -113,7 +113,7 @@ public:
                                   const std::string& tag,
                                   const std::string& tagIdentifier,
                                   TagType tagType,
-                                  char tagSpacing) {
+                                  unsigned char tagSpacing) {
     return Word(wordId, tag, tagIdentifier, tagType, tagSpacing);
   }
   const WordIndex& toWordIndex() const { return wordId_; }
