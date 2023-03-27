@@ -527,13 +527,15 @@ public:
             }
           }
           bool emptyPrefix = true;
-          if(q < line.size() && p > q) {
+          bool eol = !(q < line.size() && p > q);
+          if(!eol) {
             prefix.assign(line, q, p - q);
             if(prefix.find_first_not_of(" ") != std::string::npos) {
               emptyPrefix = false;
             }
           }
-          if(!emptyPrefix || (!prefix.empty() && (words.empty() || p == std::string::npos))) {
+          if(!emptyPrefix
+             || (!prefix.empty() && !eol && (words.empty() || p == std::string::npos))) {
             encodeMarkupText(prefix,
                              inputFormat,
                              entitizeTags,
@@ -676,6 +678,7 @@ public:
                 auto& markupTag = words.back().getMarkupTag();
                 markupTag->spacing() |= tagSpacing;
                 markupTag->tag() += std::move(prefix) + std::move(tag);
+                prefix.clear();
               }
               if(tagType == TagType::CLOSE_TAG && !emptyPrefix) {
                 auto prevMarkup
