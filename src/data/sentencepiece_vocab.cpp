@@ -467,7 +467,6 @@ public:
       } else {
         sentencepiece::normalizer::AddDummyPrefix addDummyPrefix
             = sentencepiece::normalizer::AddDummyPrefix::DEFAULT;
-        std::string prefix;
         for(size_t p = 0, q = 0;;) {
           p = tagfinder::findNextTagStart(line, p);
           TagType tagType = TagType::NONE;
@@ -547,15 +546,14 @@ public:
             }
           }
           bool emptyPrefix = true;
-          bool eol = !(q < line.size() && p > q);
-          if(!eol) {
+          std::string prefix;
+          if(q < line.size() && p > q) {
             prefix.assign(line, q, p - q);
             if(prefix.find_first_not_of(" ") != std::string::npos) {
               emptyPrefix = false;
             }
           }
-          if(!emptyPrefix
-             || (!prefix.empty() && !eol && (words.empty() || p == std::string::npos))) {
+          if(!emptyPrefix || (!prefix.empty() && (words.empty() || p == std::string::npos))) {
             encodeMarkupText(prefix,
                              inputFormat,
                              entitizeTags,
@@ -698,7 +696,6 @@ public:
                 auto& markupTag = words.back().getMarkupTag();
                 markupTag->spacing() |= tagSpacing;
                 markupTag->tag() += std::move(prefix) + std::move(tag);
-                prefix.clear();
               }
               if(tagType == TagType::CLOSE_TAG && !emptyPrefix) {
                 auto prevMarkup
