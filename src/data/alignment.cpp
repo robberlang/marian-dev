@@ -21,23 +21,23 @@ struct TagNest {
 };
 
 struct TagPlacement {
-  std::vector<std::pair<Word, size_t>>::const_iterator lineTag_;
+  std::pair<Word, size_t> lineTag_;
   size_t id_;
   Ptr<size_t> tagPosition_;
   Ptr<size_t> matchingTagPosition_;
   std::vector<TagNest> nests_;
-  TagPlacement(std::vector<std::pair<Word, size_t>>::const_iterator lineTag,
+  TagPlacement(std::pair<Word, size_t> lineTag,
                size_t id,
                size_t pos)
-      : lineTag_(lineTag),
+      : lineTag_(std::move(lineTag)),
         id_(id),
         tagPosition_(New<size_t>(pos)),
         matchingTagPosition_(tagPosition_) {}
-  TagPlacement(std::vector<std::pair<Word, size_t>>::const_iterator lineTag,
+  TagPlacement(std::pair<Word, size_t> lineTag,
                size_t id,
                Ptr<size_t> tagPosition,
                Ptr<size_t> matchingTagPosition)
-      : lineTag_(lineTag),
+      : lineTag_(std::move(lineTag)),
         id_(id), tagPosition_(tagPosition),
         matchingTagPosition_(matchingTagPosition) {}
   bool operator<(const TagPlacement& rhs) const {
@@ -48,10 +48,10 @@ struct TagPlacement {
           "Compare lhs id {}, pos {}, open {}, rhs id {}, pos {}, open {}, lhs < rhs: {}",
           id_,
           *tagPosition_,
-          lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG,
+          lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG,
           rhs.id_,
           *rhs.tagPosition_,
-          rhs.lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG,
+          rhs.lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG,
           ret);
     }
     return ret;
@@ -75,12 +75,12 @@ struct TagPlacement {
       if(nests_[i].id_ == rhs.id_) {
         // b nests a
         // if b is a closing tag then a comes first, otherwise b does
-        return (rhs.lineTag_->first.getMarkupTag()->type() == TagType::CLOSE_TAG);
+        return (rhs.lineTag_.first.getMarkupTag()->type() == TagType::CLOSE_TAG);
       }
       if(*nests_[i].openTagPosition_ != *rhs.tagPosition_) {
         return *nests_[i].openTagPosition_ < *rhs.tagPosition_;
       }
-      if(rhs.lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG) {
+      if(rhs.lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG) {
         // b is an opening tag
         return *nests_[i].closeTagPosition_ < *rhs.matchingTagPosition_;
       }
@@ -94,12 +94,12 @@ struct TagPlacement {
       if(rhs.nests_[j].id_ == id_) {
         // a nests b
         // if a is a not a closing tag then a comes first, otherwise b does
-        return (lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG);
+        return (lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG);
       }
       if(*rhs.nests_[j].openTagPosition_ != *tagPosition_) {
         return *tagPosition_ < *rhs.nests_[j].openTagPosition_;
       }
-      if(lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG) {
+      if(lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG) {
         // a is an opening tag
         return *matchingTagPosition_ < *rhs.nests_[j].closeTagPosition_;
       }
@@ -112,14 +112,14 @@ struct TagPlacement {
     }
     // at this point, the two tags are at the same level (i == -1 and j == -1)
     if(id_ != rhs.id_) {
-      if((lineTag_->first.getMarkupTag()->type() == TagType::CLOSE_TAG
-          && rhs.lineTag_->first.getMarkupTag()->type() == TagType::CLOSE_TAG)
-         || (lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG
-             && rhs.lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG)) {
+      if((lineTag_.first.getMarkupTag()->type() == TagType::CLOSE_TAG
+          && rhs.lineTag_.first.getMarkupTag()->type() == TagType::CLOSE_TAG)
+         || (lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG
+             && rhs.lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG)) {
         // both opening or both closing tags
         return *matchingTagPosition_ < *rhs.matchingTagPosition_;
       }
-      if(lineTag_->first.getMarkupTag()->type() == TagType::CLOSE_TAG) {
+      if(lineTag_.first.getMarkupTag()->type() == TagType::CLOSE_TAG) {
         // a is closing, b is opening, if a or b spans multiple positions then a comes before b
         return *rhs.matchingTagPosition_ > *rhs.tagPosition_
                || *tagPosition_ > *matchingTagPosition_;
@@ -129,7 +129,7 @@ struct TagPlacement {
       return false;
     }
     // here, it is the opening and closing tag that correspond to each other
-    return lineTag_->first.getMarkupTag()->type() != TagType::CLOSE_TAG;
+    return lineTag_.first.getMarkupTag()->type() != TagType::CLOSE_TAG;
   }
 };
 
@@ -138,6 +138,7 @@ struct TagBalancingInfo {
   size_t realTagIndex_;
   size_t alignmentIndex_;
   std::string tagIdentifier_;
+  bool fake_{false};
   TagBalancingInfo(size_t tagIndex,
                    size_t alignmentIndex,
                    std::string tagIdentifier)
@@ -145,14 +146,16 @@ struct TagBalancingInfo {
         realTagIndex_(tagIndex),
         alignmentIndex_(alignmentIndex),
         tagIdentifier_(std::move(tagIdentifier)) {}
-  bool artificial() const { return tagIndex_ != realTagIndex_; }
+  bool artificial() const { return fake_ || tagIndex_ != realTagIndex_; }
 };
 
 bool regionConflicts(const std::vector<std::pair<size_t, size_t>>& trgTagRegions,
                      const TagBalancingInfo& unbalancedOpenTag,
                      const std::vector<TagPlacement>& translationTags,
-                     const Words& words,
-                     size_t leftTgtBoundary,
+                     const size_t sentenceLength,
+                     const size_t leftTgtBoundary,
+                     const bool minIsFixed,
+                     const bool maxIsFixed,
                      size_t& minTgtPos,
                      size_t& maxTgtPos) {
   if(minTgtPos < leftTgtBoundary) {
@@ -169,36 +172,56 @@ bool regionConflicts(const std::vector<std::pair<size_t, size_t>>& trgTagRegions
                                          : 0;
     size_t existingRegionMaxTgtPos = (existingRegion.second < translationTags.size())
                                          ? *translationTags[existingRegion.second].tagPosition_
-                                         : words.size();
+                                         : sentenceLength;
     // if the new region would cause an overlap and bad syntax then move one end of it so
     // it borders rather than overlaps
     if(minTgtPos <= existingRegionMinTgtPos && maxTgtPos > existingRegionMinTgtPos
        && maxTgtPos <= existingRegionMaxTgtPos) {
-      maxTgtPos = existingRegionMinTgtPos;
+      if(!maxIsFixed) {
+        maxTgtPos = existingRegionMinTgtPos;
+      } else if(maxTgtPos == existingRegionMaxTgtPos) {
+        if(!minIsFixed) {
+          minTgtPos = existingRegionMaxTgtPos;
+        } else if(minTgtPos != existingRegionMaxTgtPos) {
+          return true;
+        }
+      } else {
+        return true;
+      }
     } else if(minTgtPos < existingRegionMaxTgtPos && minTgtPos >= existingRegionMinTgtPos
               && maxTgtPos >= existingRegionMaxTgtPos) {
-      minTgtPos = existingRegionMaxTgtPos;
+      if(!minIsFixed) {
+        minTgtPos = existingRegionMaxTgtPos;
+      } else if(minTgtPos == existingRegionMinTgtPos) {
+        if(!maxIsFixed) {
+          maxTgtPos = existingRegionMinTgtPos;
+        } else if(maxTgtPos != existingRegionMinTgtPos) {
+          return true;
+        }
+      } else {
+        return true;
+      }
     } else if(minTgtPos < existingRegionMaxTgtPos
               && maxTgtPos > existingRegionMinTgtPos) {  // nested or is nesting
       return true;
-      break;
     }
   }
   return false;
 }
 
 void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
-                          size_t leftTgtBoundary,
+                          const size_t leftTgtBoundary,
+                          const std::pair<Word, size_t>& lineTag,
+                          const WordAlignment& hardAlignment,
+                          const size_t curWordAlignIdx,
+                          const size_t sentenceLength,
+                          const size_t maxSrcPos,
+                          const size_t thisElementId,
+                          const bool forceEndCloseTagToEnd,
                           std::vector<TagPlacement>& translationTags,
-                          std::vector<std::pair<Word, size_t>>::const_iterator lineTag,
-                          const Ptr<MarkupTag>& markupTag,
-                          WordAlignment hardAlignment,
-                          size_t curWordAlignIdx,
-                          const Words& words,
-                          size_t maxSrcPos,
                           Ptr<size_t> closeTagPosition,
-                          std::vector<std::pair<size_t, size_t>>& trgTagRegions,
-                          size_t thisElementId) {
+                          std::vector<std::pair<size_t, size_t>>& trgTagRegions) {
+  const auto& markupTag = lineTag.first.getMarkupTag();
   const auto curWordAlign = hardAlignment.begin() + curWordAlignIdx;
   bool checkForRegionConflict = false;
   // minTgtPos will be the position of the opening tag, maxTgtPos will be the position
@@ -206,11 +229,11 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
   size_t minTgtPos = *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_;
   size_t maxTgtPos = minTgtPos;
   if(markupTag->type() == TagType::CLOSE_TAG) {
-    if(lineTag->second == maxSrcPos
-       && translationTags[unbalancedOpenTag.tagIndex_].lineTag_->second == 0
+    if(lineTag.second == maxSrcPos
+       && translationTags[unbalancedOpenTag.tagIndex_].lineTag_.second == 0
        && leftTgtBoundary == 0) {
       // this is the case where the tag encloses the entire source
-      *closeTagPosition = words.size() - 1;
+      *closeTagPosition = sentenceLength - 1;
       if(!unbalancedOpenTag.artificial()) {
         *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = 0;
       }
@@ -221,8 +244,8 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
             closeTagPosition);
         // put tags that were placed at the end back to within the nest (at the end of the
         // nest)
-        if(*translationTags[t].tagPosition_ > words.size() - 1) {
-          *translationTags[t].tagPosition_ = words.size() - 1;
+        if(*translationTags[t].tagPosition_ > sentenceLength - 1) {
+          *translationTags[t].tagPosition_ = sentenceLength - 1;
         }
       }
       translationTags.emplace_back(lineTag,
@@ -230,29 +253,29 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
                                    closeTagPosition,
                                    translationTags[unbalancedOpenTag.realTagIndex_].tagPosition_);
       translationTags[unbalancedOpenTag.realTagIndex_].matchingTagPosition_ = closeTagPosition;
-    } else if(lineTag->second == maxSrcPos
-              && translationTags[unbalancedOpenTag.tagIndex_].lineTag_->second == maxSrcPos
+    } else if(lineTag.second == maxSrcPos
+              && translationTags[unbalancedOpenTag.tagIndex_].lineTag_.second == maxSrcPos
               && (!unbalancedOpenTag.artificial()
                   || *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_
-                         == words.size() - 1)) {
+                         == sentenceLength - 1)) {
       // this is the case where the tag is at the end of the source
-      *closeTagPosition = words.size() - 1;
+      *closeTagPosition = sentenceLength - 1;
       if(!unbalancedOpenTag.artificial()) {
-        *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = words.size() - 1;
+        *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = sentenceLength - 1;
       }
       for(size_t t = unbalancedOpenTag.tagIndex_ + 1; t < translationTags.size(); ++t) {
         translationTags[t].nests_.emplace_back(
             thisElementId,
             translationTags[unbalancedOpenTag.tagIndex_].tagPosition_,
             closeTagPosition);
-        *translationTags[t].tagPosition_ = words.size() - 1;
+        *translationTags[t].tagPosition_ = sentenceLength - 1;
       }
       translationTags.emplace_back(lineTag,
                                    thisElementId,
                                    closeTagPosition,
                                    translationTags[unbalancedOpenTag.realTagIndex_].tagPosition_);
       translationTags[unbalancedOpenTag.realTagIndex_].matchingTagPosition_ = closeTagPosition;
-    } else if(lineTag->second == 0 && leftTgtBoundary == 0) {
+    } else if(lineTag.second == 0 && leftTgtBoundary == 0) {
       // this is the case where the tag is at the beginning of the source
       if(!unbalancedOpenTag.artificial()) {
         *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = 0;
@@ -277,17 +300,17 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
         // this is the case where the opening tag couldn't be placed
         // place at the end - but if nested, then later will put at end of the nest once the
         // nest is established
-        *closeTagPosition = words.size();
+        *closeTagPosition = sentenceLength;
         translationTags.emplace_back(lineTag,
                                      thisElementId,
                                      closeTagPosition,
                                      translationTags[unbalancedOpenTag.realTagIndex_].tagPosition_);
         translationTags[unbalancedOpenTag.realTagIndex_].matchingTagPosition_ = closeTagPosition;
         checkForRegionConflict = false;
-      } else if(lineTag->second != translationTags[unbalancedOpenTag.tagIndex_].lineTag_->second) {
+      } else if(lineTag.second != translationTags[unbalancedOpenTag.tagIndex_].lineTag_.second) {
         // this is the normal case - non-empty element opening tag appears somewhere in the
-        // middle; empty elements (those for which lineTag->second ==
-        // translationTags[unbalancedOpenTag.tagIndex_].lineTag_->second) are treated as
+        // middle; empty elements (those for which lineTag.second ==
+        // translationTags[unbalancedOpenTag.tagIndex_].lineTag_.second) are treated as
         // self-closing
 
         // first get the boundaries of unambiguous word alignments
@@ -296,13 +319,17 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
           maxTgtPos = wordAlign->tgtPos;
         }
 
+        if(forceEndCloseTagToEnd) {
+          maxTgtPos = sentenceLength - 1;
+        }
+
         const auto openTagWordAlign = wordAlign;
         size_t minTgtPosNest = -1;
         size_t maxTgtPosNest = 0;
         // if there are tags nested then have them remain nested
         for(size_t t = unbalancedOpenTag.tagIndex_ + 1; t < translationTags.size(); ++t) {
           // ignore tags that couldn't be placed, they will be put within the nest later
-          if(*translationTags[t].tagPosition_ == words.size()) {
+          if(*translationTags[t].tagPosition_ == sentenceLength) {
             continue;
           }
           if(*translationTags[t].tagPosition_ < minTgtPosNest) {
@@ -487,21 +514,20 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
         if(openTagWordAlign != hardAlignment.begin()) {
           auto prevWordAlign = std::prev(openTagWordAlign);
           if(prevWordAlign->srcPos + 1
-                 == translationTags[unbalancedOpenTag.tagIndex_].lineTag_->second
+                 == translationTags[unbalancedOpenTag.tagIndex_].lineTag_.second
              && prevWordAlign->tgtPos + 1 < minTgtPos
              && prevWordAlign->tgtPos + 1 >= minTgtPosOfAlignments) {
             minTgtPos = prevWordAlign->tgtPos + 1;
           }
         }
 
-        if(curWordAlign != hardAlignment.end() && curWordAlign->srcPos == lineTag->second
+        if(curWordAlign != hardAlignment.end() && curWordAlign->srcPos == lineTag.second
            && curWordAlign->tgtPos > maxTgtPos && curWordAlign->tgtPos <= maxTgtPosOfAlignments) {
           maxTgtPos = curWordAlign->tgtPos;
         }
-
-        // do not set maxTgtPos so that it encloses the EOS token
-        if(maxTgtPos == words.size()) {
-          --maxTgtPos;
+        if(maxTgtPos == sentenceLength || forceEndCloseTagToEnd) {
+          // in the case of the former condition, ensuring that maxTgtPos encloses the EOS token
+          maxTgtPos = sentenceLength - 1;
         }
       }
     }
@@ -520,19 +546,14 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
     if(!regionConflicts(trgTagRegions,
                         unbalancedOpenTag,
                         translationTags,
-                        words,
+                        sentenceLength,
                         leftTgtBoundary,
+                        unbalancedOpenTag.artificial(),
+                        forceEndCloseTagToEnd,
                         minTgtPos,
                         maxTgtPos)) {
       // no conflict or conflict resolved
-      if(!unbalancedOpenTag.artificial()) {
-        *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = minTgtPos;
-      } else {
-        if(*translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ != minTgtPos) {
-          minTgtPos = *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_;
-          maxTgtPos = minTgtPos;
-        }
-      }
+      *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = minTgtPos;
       *closeTagPosition = maxTgtPos;
       for(size_t t = unbalancedOpenTag.tagIndex_ + 1; t < translationTags.size(); ++t) {
         translationTags[t].nests_.emplace_back(
@@ -560,8 +581,23 @@ void positionBalancedTags(const TagBalancingInfo& unbalancedOpenTag,
       // place these open/close tags at the end or in the case of close/close tag (misnested)
       // place as empty element at the position of the first close tag
       // also make tags that were nested on the source remain nested
-      if(!unbalancedOpenTag.artificial()) {
-        *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = words.size();
+      if(!unbalancedOpenTag.artificial() || forceEndCloseTagToEnd) {
+        *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_ = sentenceLength;
+        if(unbalancedOpenTag.realTagIndex_ != unbalancedOpenTag.tagIndex_) {
+          // artificial needs to be forced to end at the real start
+          size_t outermostNestId = translationTags[unbalancedOpenTag.realTagIndex_].id_;
+          for(const auto& n : translationTags[unbalancedOpenTag.realTagIndex_].nests_) {
+            if(n.id_ < outermostNestId) {
+              outermostNestId = n.id_;
+            }
+          }
+          for(size_t t = unbalancedOpenTag.tagIndex_ - 1;
+              t > 0 && translationTags[t].id_ >= outermostNestId;
+              --t) {
+            *translationTags[t].tagPosition_
+                = *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_;
+          }
+        }
       }
       *closeTagPosition = *translationTags[unbalancedOpenTag.tagIndex_].tagPosition_;
       for(size_t t = unbalancedOpenTag.tagIndex_ + 1; t < translationTags.size(); ++t) {
@@ -588,7 +624,7 @@ size_t getLeftTgtBoundary(std::vector<TagBalancingInfo>::const_reverse_iterator 
                           const std::vector<TagPlacement>& translationTags) {
   size_t leftTgtBoundary = 0;
   for(; rit != rend; ++rit) {
-    if(rit->artificial()) {
+    if(rit->tagIndex_ != rit->realTagIndex_) {
       leftTgtBoundary = *translationTags[rit->tagIndex_].tagPosition_;
       break;
     }
@@ -874,17 +910,26 @@ Words reinsertTags(const Words& words,
   // of whatever nest there may be
   std::vector<TagPlacement> translationTags;
   std::vector<TagBalancingInfo> unbalancedOpenTags;
+  // add a dummy open tag at the beginning to use for potential close tags that have no matching
+  // opening tag
+  translationTags.emplace_back(
+      std::make_pair<Word, size_t>(
+          Word::fromWordIndexAndTag(
+              0, std::string(), std::string(), TagType::OPEN_TAG, TAGSPACING_NONE),
+          0),
+      elementId++,
+      0);
+  unbalancedOpenTags.emplace_back(TagBalancingInfo(translationTags.size() - 1, 0, std::string()));
+  unbalancedOpenTags.back().fake_ = true;
   std::vector<std::pair<size_t, size_t>> trgTagRegions;
-  size_t maxOverallTgtPos = 0;
   auto curWordAlign = hardAlignment.begin();
+  const size_t sentenceLength = words.size();
   for(auto lineTag = lineTags.begin(); lineTag != lineTags.end(); ++lineTag) {
     const auto& markupTag = lineTag->first.getMarkupTag();
     if(!markupTag) // error
       continue;
 
     for(; curWordAlign != hardAlignment.end(); ++curWordAlign) {
-      if(curWordAlign->tgtPos > maxOverallTgtPos)
-        maxOverallTgtPos = curWordAlign->tgtPos;
       if(curWordAlign->srcPos >= lineTag->second) {
         break;
       }
@@ -894,10 +939,10 @@ Words reinsertTags(const Words& words,
     if(markupTag->type() != TagType::CLOSE_TAG) {
       if(lineTag->second == 0 && markupTag->type() == TagType::EMPTY_TAG) {
         // empty tag at beginning of source
-        translationTags.emplace_back(lineTag, elementId++, 0);
+        translationTags.emplace_back(*lineTag, elementId++, 0);
       } else if(lineTag->second == maxSrcPos && markupTag->type() == TagType::EMPTY_TAG) {
         // empty tag at end of source
-        translationTags.emplace_back(lineTag, elementId++, words.size() - 1);
+        translationTags.emplace_back(*lineTag, elementId++, sentenceLength - 1);
       } else if(curWordAlign
                 != hardAlignment.end() /*&& curWordAlign->srcPos == lineTag->second*/) {
         if((markupTag->spacing() & TAGSPACING_BEFORE) == 0
@@ -908,188 +953,169 @@ Words reinsertTags(const Words& words,
           // this is for self closing tags or opening tags of empty elements
           // looks like a closing tag as it hugs the previous word (no space separation)
           if(translationTags.empty()
-             || translationTags.back().lineTag_->second != lineTag->second) {
+             || translationTags.back().lineTag_.second != lineTag->second) {
             translationTags.emplace_back(
-                lineTag, elementId++, std::prev(curWordAlign)->tgtPos + 1);
+                *lineTag, elementId++, std::prev(curWordAlign)->tgtPos + 1);
           } else {
             translationTags.emplace_back(
-                lineTag, elementId++, *translationTags.back().tagPosition_);
+                *lineTag, elementId++, *translationTags.back().tagPosition_);
           }
         } else {
-          translationTags.emplace_back(lineTag, elementId++, curWordAlign->tgtPos);
+          translationTags.emplace_back(*lineTag, elementId++, curWordAlign->tgtPos);
         }
       } else {
         // place at the end - but if nested, then later will put at end of the nest once the nest is
         // established
-        translationTags.emplace_back(lineTag, elementId++, words.size());
+        translationTags.emplace_back(*lineTag, elementId++, sentenceLength);
       }
       unbalancedOpenTags.emplace_back(
           TagBalancingInfo(translationTags.size() - 1,
                            static_cast<size_t>(std::distance(hardAlignment.begin(), curWordAlign)),
                            tagIdentifier));
-    }
-    if(markupTag->type() != TagType::OPEN_TAG) {
-      bool unbalanced = true;
-      size_t curWordAlignIdx = std::distance(hardAlignment.begin(), curWordAlign);
-      if(markupTag->type() == TagType::CLOSE_TAG) {
-        size_t tagCount = translationTags.size();
-        size_t trgTagRegionCount = trgTagRegions.size();
-        auto unbalancedOpenTag = unbalancedOpenTags.begin();
-        Ptr<size_t> closeTagPosition = New<size_t>(0);
-        for(auto it = unbalancedOpenTags.rbegin(); it != unbalancedOpenTags.rend(); ++it) {
-          bool artificialEnd = (tagIdentifier != it->tagIdentifier_);
-          size_t leftTgtBoundary
-              = getLeftTgtBoundary(it, unbalancedOpenTags.rend(), translationTags);
-          unbalancedOpenTag = std::prev(it.base());
-          positionBalancedTags(
-              *unbalancedOpenTag,
-              leftTgtBoundary,
-              translationTags,
-              lineTag,
-              markupTag,
-              hardAlignment,
-              curWordAlignIdx,
-              words,
-              maxSrcPos,
-              closeTagPosition,
-              trgTagRegions,
-              (!it->artificial()) ? translationTags[it->tagIndex_].id_ : elementId++);
-          if(!artificialEnd) {
-            unbalanced = false;
-            break;
-          }
-          it->alignmentIndex_
-              = static_cast<size_t>(std::distance(hardAlignment.begin(), curWordAlign));
-          it->tagIndex_ = tagCount;
-        }
-        size_t addedTags = translationTags.size() - tagCount;
-        if(!unbalanced) {
-          if(addedTags > 1) {
-            // keep the last one
-            translationTags.erase(std::prev(translationTags.end(), addedTags),
-                                  std::prev(translationTags.end()));
-          }
-          if(unbalancedOpenTag->artificial()) {
-            for(size_t t = unbalancedOpenTag->realTagIndex_ + 1; t < translationTags.size() - 1;
-                ++t) {
-              translationTags[t].nests_.emplace_back(
-                  elementId,
-                  translationTags[unbalancedOpenTag->realTagIndex_].tagPosition_,
-                  closeTagPosition);
-            }
-            ++elementId;
-          }
-          unbalancedOpenTags.erase(unbalancedOpenTag);
-        } else if(addedTags > 0) {
-          translationTags.erase(std::prev(translationTags.end(), addedTags),
-                                translationTags.end());
-        }
-        for(size_t i = trgTagRegionCount; i < trgTagRegions.size(); ++i) {
-          if(trgTagRegions[i].second > tagCount) {
-            trgTagRegions[i].second = tagCount;
-          }
-        }
-      } else if(!unbalancedOpenTags.empty()) {
-        // self-closing tag
+      if(markupTag->type() == TagType::EMPTY_TAG) {
         auto it = std::prev(unbalancedOpenTags.end());
         size_t leftTgtBoundary = getLeftTgtBoundary(
             unbalancedOpenTags.rbegin(), unbalancedOpenTags.rend(), translationTags);
         positionBalancedTags(*it,
                              leftTgtBoundary,
-                             translationTags,
-                             lineTag,
-                             markupTag,
+                             *lineTag,
                              hardAlignment,
-                             curWordAlignIdx,
-                             words,
+                             std::distance(hardAlignment.begin(), curWordAlign),
+                             sentenceLength,
                              maxSrcPos,
+                             translationTags[it->tagIndex_].id_,
+                             false,
+                             translationTags,
                              New<size_t>(0),
-                             trgTagRegions,
-                             translationTags[it->tagIndex_].id_);
+                             trgTagRegions);
         unbalancedOpenTags.erase(it);
-        unbalanced = false;
       }
-      if(unbalanced) {
-        // received unbalanced input - closing tag has no opening tag
-        size_t tgtPos = 0;
-        if(lineTag->second == maxSrcPos || maxOverallTgtPos >= words.size()) {
-          // if tag or maximum aligned position is at end of source, put it at end of target
-          tgtPos = words.size() - 1;
-        } else {
-          // put tag after the maximum aligned position
-          tgtPos = maxOverallTgtPos;
+    } else {
+      // markupTag->type() == TagType::CLOSE_TAG
+      bool unbalanced = true;
+      size_t tagCount = translationTags.size();
+      size_t trgTagRegionCount = trgTagRegions.size();
+      auto unbalancedOpenTag = unbalancedOpenTags.begin();
+      // use a single close tag position ptr for matching tag position (matchingTagPosition_)
+      Ptr<size_t> closeTagPosition = New<size_t>(0);
+      for(auto it = unbalancedOpenTags.rbegin(); it != unbalancedOpenTags.rend(); ++it) {
+        size_t leftTgtBoundary = getLeftTgtBoundary(it, unbalancedOpenTags.rend(), translationTags);
+        unbalancedOpenTag = std::prev(it.base());
+        bool matchingClose = (tagIdentifier == it->tagIdentifier_);
+        positionBalancedTags(
+            *unbalancedOpenTag,
+            leftTgtBoundary,
+            *lineTag,
+            hardAlignment,
+            std::distance(hardAlignment.begin(), curWordAlign),
+            sentenceLength,
+            maxSrcPos,
+            ((!it->artificial() && matchingClose) ? translationTags[it->tagIndex_].id_
+                                                  : elementId++),
+            false,
+            translationTags,
+            closeTagPosition,
+            trgTagRegions);
+        // this is for artificial tags - keep the original placement, will move if necessary later
+        translationTags.back().tagPosition_ = New<size_t>(*closeTagPosition);
+        if(matchingClose || it->fake_) {
+          if(!it->fake_) {
+            unbalanced = false;
+          }
+          break;
         }
-        Ptr<size_t> openTagPosition = New<size_t>(0);
-        Ptr<size_t> closeTagPosition = New<size_t>(tgtPos);
-        for(size_t t = 0; t < translationTags.size(); ++t) {
-          translationTags[t].nests_.emplace_back((size_t)-1, openTagPosition, closeTagPosition);
-          if(*translationTags[t].tagPosition_ > tgtPos) {
-            *translationTags[t].tagPosition_ = tgtPos;
+        it->alignmentIndex_
+            = static_cast<size_t>(std::distance(hardAlignment.begin(), curWordAlign));
+        it->tagIndex_ = tagCount;
+      }
+      // set the real close tag position ptr
+      translationTags.back().tagPosition_ = std::move(closeTagPosition); 
+      size_t addedTags = translationTags.size() - tagCount;
+      if(addedTags > 1) {
+        // if the artifical close tags do not match the real close tag, move the open tags and those
+        // within the nest to the position of the real close tag
+        // also fix the matching (close) tag position
+        for(size_t i = tagCount, j = 0; i < translationTags.size() - 1; ++i, ++j) {
+          if(*translationTags[i].tagPosition_ != *translationTags.back().tagPosition_) {
+            auto ubt = std::next(unbalancedOpenTags.rbegin(), j);
+            for(size_t t = ubt->realTagIndex_; t < tagCount; ++t) {
+              *translationTags[t].tagPosition_ = *translationTags.back().tagPosition_;
+            }
           }
         }
-        trgTagRegions.emplace_back((size_t)-1, translationTags.size());
-        translationTags.emplace_back(lineTag, elementId++, closeTagPosition, openTagPosition);
+        // remove all but the last tag
+        translationTags.erase(std::prev(translationTags.end(), addedTags),
+                              std::prev(translationTags.end()));
+      }
+      if(unbalancedOpenTag->realTagIndex_ != unbalancedOpenTag->tagIndex_) {
+        for(size_t t = unbalancedOpenTag->realTagIndex_ + 1; t < translationTags.size() - 1; ++t) {
+          translationTags[t].nests_.emplace_back(
+              translationTags[unbalancedOpenTag->realTagIndex_].id_,
+              translationTags[unbalancedOpenTag->realTagIndex_].tagPosition_,
+              translationTags.back().tagPosition_);
+        }
+      }
+      if(!unbalanced) {
+        unbalancedOpenTags.erase(unbalancedOpenTag);
+      }
+      for(size_t i = trgTagRegionCount; i < trgTagRegions.size(); ++i) {
+        if(trgTagRegions[i].second > tagCount) {
+          trgTagRegions[i].second = tagCount;
+        }
       }
     }
   }
 
-  // received unbalanced input - opening tag has no closing tag - treat as if closing tags are after
-  // the end of the segment
-  if(!unbalancedOpenTags.empty()) {
-    for(auto u = unbalancedOpenTags.rbegin(); u != unbalancedOpenTags.rend(); ++u) {
-      if(!u->artificial()) {
-        if(translationTags[u->tagIndex_].lineTag_->second == 0) {
-          *translationTags[u->tagIndex_].tagPosition_ = 0;
-        } else if(translationTags[u->tagIndex_].lineTag_->second == maxSrcPos) {
-            *translationTags[u->tagIndex_].tagPosition_ = words.size();
-        } else {
-          for(auto a = hardAlignment.begin() + u->alignmentIndex_; a != hardAlignment.end(); ++a) {
-            if(a->tgtPos < *translationTags[u->tagIndex_].tagPosition_) {
-              *translationTags[u->tagIndex_].tagPosition_ = a->tgtPos;
-            }
-          }
-        }
-        // do not nest previous tags - put this unbalanced opening tag at the end of them if
-        // they are appearing after the unbalanced tag's current assigned position
-        for(size_t t = 0; t < u->tagIndex_; ++t) {
-          if(*translationTags[t].tagPosition_ > *translationTags[u->tagIndex_].tagPosition_) {
-            *translationTags[u->tagIndex_].tagPosition_ = *translationTags[t].tagPosition_;
-          }
-        }
-        // if there are tags nested then have them remain nested
-        for(size_t t = u->tagIndex_ + 1; t < translationTags.size(); ++t) {
-          if(*translationTags[t].tagPosition_ < *translationTags[u->tagIndex_].tagPosition_) {
-            *translationTags[u->tagIndex_].tagPosition_ = *translationTags[t].tagPosition_;
-          }
-        }
-      }
-      Ptr<size_t> closeTagPosition = New<size_t>(words.size());
-      translationTags[u->realTagIndex_].matchingTagPosition_ = closeTagPosition;
-      size_t eltId = (!u->artificial()) ? translationTags[u->tagIndex_].id_ : elementId++;
-      for(size_t t = u->tagIndex_ + 1; t < translationTags.size(); ++t) {
-        translationTags[t].nests_.emplace_back(
-            eltId, translationTags[u->tagIndex_].tagPosition_, closeTagPosition);
-      }
-      if(u->artificial()) {
-        for(size_t t = u->realTagIndex_ + 1; t < translationTags.size(); ++t) {
+  if(unbalancedOpenTags.size() > 1) {
+    // received unbalanced input - opening tag has no closing tag - treat as if closing tags are
+    // after the end of the segment
+    std::pair<Word, size_t> dummyCloseTag(
+        Word::fromWordIndexAndTag(
+            0, std::string(), std::string(), TagType::CLOSE_TAG, TAGSPACING_NONE),
+        maxSrcPos);
+    auto rend = std::prev(unbalancedOpenTags.rend());
+    size_t tagCount = translationTags.size();
+    for(auto it = unbalancedOpenTags.rbegin(); it != rend; ++it) {
+      size_t leftTgtBoundary = getLeftTgtBoundary(it, rend, translationTags);
+      auto unbalancedOpenTag = std::prev(it.base());
+      positionBalancedTags(*unbalancedOpenTag,
+                           leftTgtBoundary,
+                           dummyCloseTag,
+                           hardAlignment,
+                           hardAlignment.size(),
+                           sentenceLength,
+                           maxSrcPos,
+                           (!it->artificial()) ? translationTags[it->tagIndex_].id_ : elementId++,
+                           true,
+                           translationTags,
+                           New<size_t>(0),
+                           trgTagRegions);
+      if(unbalancedOpenTag->realTagIndex_ != unbalancedOpenTag->tagIndex_) {
+        for(size_t t = unbalancedOpenTag->realTagIndex_ + 1; t < translationTags.size() - 1; ++t) {
           translationTags[t].nests_.emplace_back(
-              elementId, translationTags[u->realTagIndex_].tagPosition_, closeTagPosition);
+              translationTags[unbalancedOpenTag->realTagIndex_].id_,
+              translationTags[unbalancedOpenTag->realTagIndex_].tagPosition_,
+              translationTags.back().tagPosition_);
         }
-        ++elementId;
       }
     }
+    // remove all the fake added close tags
+    translationTags.erase(std::next(translationTags.begin(), tagCount), translationTags.end());
   }
+
+  // erase dummy open tag
+  translationTags.erase(translationTags.begin());
 
   // make sure positions are before EOS token; those that are past were those that couldn't be
   // placed
   for(auto& t : translationTags) {
-    if(*t.tagPosition_ == words.size()) {
-      *t.tagPosition_ = words.size() - 1;
+    if(*t.tagPosition_ == sentenceLength) {
+      *t.tagPosition_ = sentenceLength - 1;
     }
   }
 
 #if 0
-  LOG(info, "words size: {}", words.size());
+  LOG(info, "words size: {}", sentenceLength);
   for(auto& t : translationTags) {
     std::ostringstream oss;
     for(auto n : t.nests_) {
@@ -1098,7 +1124,7 @@ Words reinsertTags(const Words& words,
     }
     LOG(info,
         "Tag {} : id: {}, pos: {}, matching tag pos: {}, nests size: {}, nests: {}",
-        t.lineTag_->first.getMarkupTag()->tag(),
+        t.lineTag_.first.getMarkupTag()->tag(),
         t.id_,
         *t.tagPosition_,
         *t.matchingTagPosition_,
@@ -1116,7 +1142,7 @@ Words reinsertTags(const Words& words,
       wordsWithTags.insert(wordsWithTags.end(), w, x);
       w = x;
     }
-    wordsWithTags.push_back(t->lineTag_->first);
+    wordsWithTags.push_back(t->lineTag_.first);
   }
 
   wordsWithTags.insert(wordsWithTags.end(), w, words.end());
