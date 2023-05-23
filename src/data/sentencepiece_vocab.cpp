@@ -363,17 +363,15 @@ public:
   }
 
   bool wordStartsWithAlpha(const Word& word) const {
-    const std::string& wrd = (*this)[word];
-    std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
-    return !wrdU.empty() && !unicodecharprops::isUCharNonSpacing(wrdU.front())
-           && unicodecharprops::isUCharAlpha(wrdU.front());
+    std::u32string strU = utils::utf8ToUnicodeString((*this)[word]);
+    return !strU.empty() && !unicodecharprops::isUCharNonSpacing(strU.front())
+           && unicodecharprops::isUCharAlpha(strU.front());
   }
 
   bool wordEndsWithAlpha(const Word& word) const {
-    const std::string& wrd = (*this)[word];
-    std::u32string wrdU = utils::utf8ToUnicodeString(wrd);
-    return !wrdU.empty() && !unicodecharprops::isUCharNonSpacing(wrdU.back())
-           && unicodecharprops::isUCharAlpha(wrdU.back());
+    std::u32string strU = utils::utf8ToUnicodeString((*this)[word]);
+    return !strU.empty() && !unicodecharprops::isUCharNonSpacing(strU.back())
+           && unicodecharprops::isUCharAlpha(strU.back());
   }
 
   void encodeMarkupText(const std::string& text,
@@ -666,8 +664,16 @@ public:
                   tagSpacing |= TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG;
                 }
               }
-              if(tagType == TagType::EMPTY_TAG && tagSpacing == TAGSPACING_NONE) {
-                addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
+              if(tagType == TagType::EMPTY_TAG && tagSpacing == TAGSPACING_NONE
+                 && addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON) {
+                for(auto it = words.rbegin(); it != words.rend(); ++it) {
+                  if(!it->getMarkupTag()) {
+                    if(wordEndsWithAlpha(*it)) {
+                      addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
+                    }
+                    break;
+                  }
+                }
               }
               if(!joinTagToPrev) {
                 words.push_back(Word::fromWordIndexAndTag(
@@ -687,7 +693,7 @@ public:
                    && !std::prev(prevMarkup)->getMarkupTag()
                    && words.back().getMarkupTag()->identifier()
                           == prevMarkup->getMarkupTag()->identifier()) {
-                  words.back().getMarkupTag()->elementContent() = prefix;
+                  words.back().getMarkupTag()->elementContent() = std::move(prefix);
                 }
               }
             } else {
@@ -801,6 +807,21 @@ public:
       }
     }
 
+#if 0
+    for(const auto& word : words) {
+      if(word.getMarkupTag()) {
+        LOG(info,
+            "Tag {}, type {}, id {}, spacing {}, elt {}",
+            word.getMarkupTag()->tag(),
+            static_cast<size_t>(word.getMarkupTag()->type()),
+            word.getMarkupTag()->identifier(),
+            static_cast<size_t>(word.getMarkupTag()->spacing()),
+            word.getMarkupTag()->elementContent());
+      } else {
+        LOG(info, "Word id {}, word {}", word.toWordIndex(), (*this)[word]);
+      }
+    }
+#endif
     if(addEOS)
       words.push_back(getEosId());
     return words;
