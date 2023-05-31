@@ -585,8 +585,7 @@ public:
                                /*specialSymbols=*/true,
                                addDummyPrefix,
                                words);
-              bool needSpace = (adpTemp == sentencepiece::normalizer::AddDummyPrefix::ON
-                                || adpTemp == sentencepiece::normalizer::AddDummyPrefix::DEFAULT);
+              bool needSpace = (adpTemp != sentencepiece::normalizer::AddDummyPrefix::OFF);
               if(needSpace) {
                 words.push_back(spaceToken_);
               }
@@ -684,7 +683,7 @@ public:
                   tagSpacing |= TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG;
                 }
               }
-              if(tagType == TagType::EMPTY_TAG && tagSpacing == TAGSPACING_NONE
+              if(tagType != TagType::OPEN_TAG && tagSpacing == TAGSPACING_NONE
                  && addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON) {
                 for(auto it = words.rbegin(); it != words.rend(); ++it) {
                   if(!it->getMarkupTag()) {
