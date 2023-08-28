@@ -36,7 +36,7 @@ public:
   }
 
   void load(Ptr<ExpressionGraph> graph,
-            const std::string& name,
+            const std::vector<io::Item>& items,
             bool /*markedReloaded*/ = true) override {
     std::map<std::string, std::string> nameMap
         = {{"decoder_U", "decoder_cell1_U"},
@@ -89,11 +89,18 @@ public:
     if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
       nameMap["Wemb"] = "Wemb";
 
-    LOG(info, "Loading model from {}", name);
-    // load items from .npz file
-    auto ioItems = io::loadItems(name);
+    auto ioItems = items;
     // map names and remove a dummy matrices
     for(auto it = ioItems.begin(); it != ioItems.end();) {
+      // for backwards compatibility, turn one-dimensional vector into two dimensional matrix with first dimension being 1 and second dimension of the original size
+      // @TODO: consider dropping support for Nematus models
+      if(it->shape.size() == 1) {
+        int dim = it->shape[-1];
+        it->shape.resize(2);
+        it->shape.set(0, 1);
+        it->shape.set(1, dim);
+      }
+
       if(it->name == "decoder_c_tt") {
         it = ioItems.erase(it);
       } else if(it->name == "uidx") {
@@ -109,6 +116,14 @@ public:
     }
     // load items into the graph
     graph->load(ioItems);
+  }
+
+  void load(Ptr<ExpressionGraph> graph,
+            const std::string& name,
+            bool /*markReloaded*/ = true) override {
+    LOG(info, "Loading model from {}", name);
+    auto ioItems = io::loadItems(name);
+    load(graph, ioItems);
   }
 
   void save(Ptr<ExpressionGraph> graph,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sstream>
+#include <tuple>
 #include <vector>
 #include <utility>
 
@@ -10,14 +11,15 @@ namespace marian {
 namespace data {
 
 class WordAlignment {
-  struct Point
-  {
+public:
+  struct Point {
       size_t srcPos;
       size_t tgtPos;
       float prob;
   };
 private:
   std::vector<Point> data_;
+
 public:
   WordAlignment();
 
@@ -31,11 +33,14 @@ private:
 public:
 
   /**
-   * @brief Constructs word alignments from textual representation.
+   * @brief Constructs word alignments from textual representation. Adds alignment point for externally
+   * supplied EOS positions in source and target string.
    *
    * @param line String in the form of "0-0 1-1 1-2", etc.
    */
-  WordAlignment(const std::string& line);
+  WordAlignment(const std::string& line, size_t srcEosPos, size_t tgtEosPos);
+
+  Point& operator[](size_t i) { return data_[i]; }
 
   auto begin() const -> decltype(data_.begin()) { return data_.begin(); }
   auto end()   const -> decltype(data_.end())   { return data_.end(); }
@@ -48,6 +53,12 @@ public:
    * @brief Sorts alignments in place by source indices in ascending order.
    */
   void sort();
+
+  /**
+   * @brief Normalizes alignment probabilities of target words to sum to 1 over source words alignments.
+   * This is needed for correct cost computation for guided alignment training with CE cost criterion. 
+   */
+  void normalize(bool reverse=false);
 
   /**
    * @brief Returns textual representation.

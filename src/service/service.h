@@ -38,7 +38,8 @@ private:
 
   size_t numDevices_;
 
-  Ptr<std::vector<mio::mmap_source>> mmaps_;
+  Ptr<std::vector<mio::mmap_source>> model_mmaps_;       // map
+  Ptr<std::vector<std::vector<io::Item>>> model_items_;  // non-mmap
 
 public:
   virtual ~TranslateService() {}
@@ -48,8 +49,8 @@ public:
         srcVocabs_(other.srcVocabs_),
         trgVocab_(other.trgVocab_),
         shortlistGenerator_(other.shortlistGenerator_),
-        mmaps_(other.mmaps_)
-  {
+        model_mmaps_(other.model_mmaps_),
+        model_items_(other.model_items_) {
     initScorers();
   }
 
@@ -70,18 +71,29 @@ public:
 
     trgVocab_ = New<Vocab>(options_, vocabPaths.size() - 1);
     trgVocab_->load(vocabPaths.back());
+    auto srcVocab = srcVocabs_.front();
+
+    std::vector<int> lshOpts = options_->get<std::vector<int>>("output-approx-knn");
+    ABORT_IF(lshOpts.size() != 0 && lshOpts.size() != 2, "--output-approx-knn takes 2 parameters");
 
     // load lexical shortlist
-    if(options_->hasAndNotEmpty("shortlist"))
-      shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
-          options_, srcVocabs_.front(), trgVocab_, 0, 1, vocabPaths.front() == vocabPaths.back());
+    if(lshOpts.size() == 2 || options_->hasAndNotEmpty("shortlist")) {
+      shortlistGenerator_ = data::createShortlistGenerator(
+          options_, srcVocab, trgVocab_, lshOpts, 0, 1, vocabPaths.front() == vocabPaths.back());
+    }
 
+    auto models = options_->get<std::vector<std::string>>("models");
     if(options_->get<bool>("model-mmap", false)) {
-      auto models = options_->get<std::vector<std::string>>("models");
-      mmaps_ = New<std::vector<mio::mmap_source>>();
+      model_mmaps_ = New<std::vector<mio::mmap_source>>();
       for(auto model : models) {
         ABORT_IF(!io::isBin(model), "Non-binarized models cannot be mmapped");
-        mmaps_->push_back(mio::mmap_source(model));
+        model_mmaps_->push_back(mio::mmap_source(model));
+      }
+    } else {
+      model_items_ = New<std::vector<std::vector<io::Item>>>();
+      for(auto model : models) {
+        auto items = io::loadItems(model);
+        model_items_->push_back(std::move(items));
       }
     }
     initScorers();
@@ -97,7 +109,8 @@ public:
                       ? convertTsvToLists(input, options_->get<size_t>("tsv-fields", 1))
                       : std::vector<std::string>({input});
     auto corpus = New<data::TextInput>(inputs, srcVocabs_, options_);
-    data::BatchGenerator<data::TextInput> batchGenerator(corpus, options_);
+    data::BatchGenerator<data::TextInput> batchGenerator(
+        corpus, options_, nullptr, /*runAsync=*/false);
 
     auto collector = New<StringCollector>(options_->get<bool>("quiet-translation", false));
     auto printer = New<OutputPrinter>(options_, trgVocab_);
@@ -144,7 +157,8 @@ public:
     std::vector<Ptr<Vocab>> vocabs(srcVocabs_);
     vocabs.push_back(trgVocab_);
     auto corpus = New<data::TextInput>(inputs, vocabs, options_);
-    data::BatchGenerator<data::TextInput> batchGenerator(corpus, options_);
+    data::BatchGenerator<data::TextInput> batchGenerator(
+        corpus, options_, nullptr, /*runAsync=*/false);
     batchGenerator.prepare();
 
     auto collector = New<StringCollector>(options_->get<bool>("quiet-translation", false));
@@ -167,7 +181,7 @@ public:
         std::vector<float> scoresForSummary;
         dynamicLoss->loss(scoresForSummary);
 
-          // soft alignments for each sentence in the batch
+        // soft alignments for each sentence in the batch
         std::vector<data::SoftAlignment> aligns(
             batch->size());  // @TODO: do this resize inside getAlignmentsForBatch()
         Rescore<Model>::getAlignmentsForBatch(builder->getAlignment(), batch, aligns);
@@ -204,14 +218,19 @@ private:
       graph->setDefaultElementType(
           typeFromString(precison[0]));  // only use first type, used for parameter type in graph
       graph->setDevice(device);
-      graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
+      if(device.type == DeviceType::cpu) {
+        graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
+        graph->getBackend()->setGemmType(options_->get<std::string>("gemm-type"));
+        graph->getBackend()->setQuantizeRange(options_->get<float>("quantize-range"));
+      }
+      graph->reserveWorkspaceMB(options_->get<int>("workspace"));
       graphs_.push_back(graph);
 
       std::vector<Ptr<Scorer>> scorers;
       if(options_->get<bool>("model-mmap", false)) {
-        scorers = createScorers(options_, *mmaps_);
+        scorers = createScorers(options_, *model_mmaps_);
       } else {
-        scorers = createScorers(options_);
+        scorers = createScorers(options_, *model_items_);
       }
       for(auto scorer : scorers) {
         scorer->init(graph);

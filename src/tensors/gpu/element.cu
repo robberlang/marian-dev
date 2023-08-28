@@ -29,7 +29,9 @@ __global__ void gElement(
           indices[i] = tensors[i].shape().bindex(dims);
       }
 
-      tensors[0].data()[index] = functional::apply(functor, tensors, indices);
+      // This performs the internal application of the functor in float32 regardless of the input type.
+      // It seems there are no speed penalties but improved precision.
+      tensors[0].data()[index] = (T)functional::applyWithCast<float>(functor, tensors, indices);
     }
   }
 }
@@ -65,7 +67,7 @@ void Element(Functor functor, Tensor out, Tensors... tensors) {
     ElementTyped<float>(functor, out, tensors...);
   } else if(out->type() == Type::float16) {
 #if COMPILE_FP16
-    ElementTyped<__half>(functor, out, tensors...);
+    ElementTyped<half>(functor, out, tensors...);
 #else
     ABORT("FP16 not supported with chosen current hardware or CUDA version");
 #endif

@@ -55,7 +55,7 @@ private:
   Ptr<CorpusBase> corpus_;
   std::vector<Ptr<ExpressionGraph>> graphs_;
   std::vector<Ptr<Model>> models_;
-  UPtr<mio::mmap_source> mmap_;
+  UPtr<mio::mmap_source> model_mmap_;
 
 public:
   Rescore(Ptr<Options> options) : options_(options) {
@@ -83,15 +83,15 @@ public:
       auto precison = options_->get<std::vector<std::string>>("precision", {"float32"});
       graph->setDefaultElementType(typeFromString(precison[0])); // only use first type, used for parameter type in graph
       graph->setDevice(device);
-      graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
+      graph->reserveWorkspaceMB(options_->get<int>("workspace"));
       graphs_.push_back(graph);
     }
 
     auto modelFile = options_->get<std::string>("model");
 
     if(options_->get<bool>("model-mmap", false)) {
-      mmap_.reset(new mio::mmap_source(modelFile));
-      ABORT_IF(!mmap_->is_mapped(), "Memory mapping did not succeed");
+      model_mmap_.reset(new mio::mmap_source(modelFile));
+      ABORT_IF(!model_mmap_->is_mapped(), "Memory mapping did not succeed");
     }
     models_.resize(graphs_.size());
     ThreadPool pool(graphs_.size(), graphs_.size());
@@ -99,8 +99,8 @@ public:
       pool.enqueue(
           [=](size_t j) {
             models_[j] = New<Model>(options_);
-            if(mmap_) {
-              models_[j]->mmap(graphs_[j], mmap_->data());
+            if(model_mmap_) {
+              models_[j]->mmap(graphs_[j], model_mmap_->data());
             } else {
               models_[j]->load(graphs_[j], modelFile);
             }
@@ -234,16 +234,6 @@ public:
                 sentScore = 0.f;
               }
             }
-          }
-
-          // progress heartbeat for MS-internal Philly compute cluster
-          // otherwise this job may be killed prematurely if no log for 4 hrs
-          if (getenv("PHILLY_JOB_ID")   // this environment variable exists when running on the cluster
-              && id % 1000 == 0)  // hard beat once every 1000 batches
-          {
-            auto progress = id / 10000.f; //fake progress for now, becomes >100 after 1M batches
-            fprintf(stdout, "PROGRESS: %.2f%%\n", progress);
-            fflush(stdout);
           }
         };
 

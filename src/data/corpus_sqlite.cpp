@@ -5,15 +5,15 @@
 namespace marian {
 namespace data {
 
-CorpusSQLite::CorpusSQLite(Ptr<Options> options, bool translate /*= false*/)
-    : CorpusBase(options, translate), seed_(Config::seed) {
+CorpusSQLite::CorpusSQLite(Ptr<Options> options, bool translate /*= false*/, size_t seed /*= Config:seed*/)
+    : CorpusBase(options, translate, seed), seed_(seed) {
   fillSQLite();
 }
 
 CorpusSQLite::CorpusSQLite(const std::vector<std::string>& paths,
                            const std::vector<Ptr<Vocab>>& vocabs,
-                           Ptr<Options> options)
-    : CorpusBase(paths, vocabs, options), seed_(Config::seed) {
+                           Ptr<Options> options, size_t seed)
+    : CorpusBase(paths, vocabs, options, seed), seed_(seed) {
   fillSQLite();
 }
 
@@ -109,7 +109,7 @@ SentenceTuple CorpusSQLite::next() {
   while(select_->executeStep()) {
     // fill up the sentence tuple with sentences from all input files
     size_t curId = select_->getColumn(0).getInt();
-    SentenceTuple tup(curId);
+    SentenceTupleImpl tup(curId);
 
     for(size_t i = 0; i < files_.size(); ++i) {
       auto line = select_->getColumn((int)(i + 1));
@@ -126,9 +126,9 @@ SentenceTuple CorpusSQLite::next() {
     if(std::all_of(tup.begin(), tup.end(), [=](const Words& words) {
          return words.size() > 0 && words.size() <= maxLength_;
        }))
-      return tup;
+      return SentenceTuple(tup);
   }
-  return SentenceTuple(0);
+  return SentenceTuple();
 }
 
 void CorpusSQLite::shuffle() {

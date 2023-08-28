@@ -3,6 +3,7 @@
 #include "marian.h"
 #include "translator/history.h"
 #include "translator/scorers.h"
+#include "translator/nth_element.h"
 
 namespace marian {
 
@@ -12,10 +13,16 @@ private:
   std::vector<Ptr<Scorer>> scorers_;
   size_t beamSize_;
   Ptr<const Vocab> trgVocab_;
-  bool getAlignment_;
 
-  const float INVALID_PATH_SCORE = std::numeric_limits<float>::lowest(); // @TODO: observe this closely
+  const float INVALID_PATH_SCORE;
+  bool getAlignment_;
   const bool PURGE_BATCH = true; // @TODO: diagnostic, to-be-removed once confirmed there are no issues.
+
+  static float chooseInvalidPathScore(Ptr<Options> options) {
+    auto prec = options->get<std::vector<std::string>>("precision", {"float32"});
+    auto computeType = typeFromString(prec[0]);
+    return NumericLimits<float>(computeType).lowest;
+  }
 
 public:
   BeamSearch(Ptr<Options> options,
@@ -25,6 +32,7 @@ public:
         scorers_(scorers),
         beamSize_(options_->get<size_t>("beam-size")),
         trgVocab_(trgVocab),
+        INVALID_PATH_SCORE{chooseInvalidPathScore(options)},
         getAlignment_(options_->hasAndNotEmpty("alignment")
                       || (ConvertInputFormat(options_->get<std::string>("input-format", ""))
                               != InputFormat::PLAINTEXT

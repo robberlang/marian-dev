@@ -19,6 +19,8 @@ namespace marian {
  * As aliases are key-value pairs by default, values are compared as std::string. 
  * If the command line option corresponding to the alias is a vector, the alias 
  * will be triggered if the requested value exists in that vector at least once.
+ * By design if an option value that is not defined for that alias option below
+ * is used, the CLI parser will abort with 'unknown value for alias' error.
  *
  * @see CLIWrapper::alias()
  *
@@ -28,10 +30,9 @@ namespace marian {
 void ConfigParser::addAliases(cli::CLIWrapper& cli) {
   cli.alias("fp16", "true", [&](YAML::Node& config) {
     if(mode_ == cli::mode::training) {
-      config["precision"] = std::vector<std::string>({"float16", "float32", "float32"}); // inference type, optimization type, save type
-      // @TODO: review this
-      // scaling factor (power of 2), frequency, multiplier at increase, tolerance, range, minium factor
-      config["cost-scaling"] = std::vector<std::string>({"7", "2000", "2", "0.05", "10", "1"}); 
+      config["precision"] = std::vector<std::string>({"float16", "float32"}); // inference type, optimization type, save type
+      // scaling factor, frequency, multiplier at increase, minium scaling factor
+      config["cost-scaling"] = std::vector<std::string>({"8.f", "10000", "1.f", "8.f"});
     } else {
       config["precision"] = std::vector<std::string>({"float16"}); // for inference we do not need the other types
     }
@@ -45,6 +46,7 @@ void ConfigParser::addAliases(cli::CLIWrapper& cli) {
 
     // Options setting the BiDeep architecture proposed in http://www.aclweb.org/anthology/W17-4710
     cli.alias("best-deep", "true", [](YAML::Node& config) {
+      config["type"] = "s2s";
       config["layer-normalization"] = true;
       config["tied-embeddings"] = true;
       config["enc-type"] = "alternating";

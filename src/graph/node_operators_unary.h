@@ -81,7 +81,7 @@ public:
 
   NodeOps backwardOps() override {
     using namespace functional;
-    return { NodeOp(CopyCast(child(0)->grad(), adj_)) };
+    return { NodeOp(AddCast(child(0)->grad(), adj_)) };
   }
 
   const std::string type() override { return "cast"; }
@@ -646,7 +646,7 @@ struct CosNodeOp : public UnaryNodeOp {
     return {NodeOp(Add(_1 * -sin(_2), child(0)->grad(), adj_, child(0)->val()))};
   }
 
-  const std::string type() override { return "sin"; }
+  const std::string type() override { return "cos"; }
 };
 
 struct TanNodeOp : public UnaryNodeOp {
@@ -662,7 +662,7 @@ struct TanNodeOp : public UnaryNodeOp {
     return {NodeOp(Add(_1 / sqr(cos(_2)), child(0)->grad(), adj_, child(0)->val()))};
   }
 
-  const std::string type() override { return "sin"; }
+  const std::string type() override { return "tan"; }
 };
 
 struct SqrtNodeOp : public UnaryNodeOp {
@@ -795,7 +795,7 @@ private:
 };
 
 class ReshapeNodeOp : public UnaryNodeOp {
-private:
+protected:
   friend class SerializationHelpers;
   Expr reshapee_;
 
@@ -853,6 +853,86 @@ public:
     if(!cnode)
       return false;
     if(shape() != cnode->shape())
+      return false;
+    return true;
+  }
+};
+
+
+
+// @TODO: add version with access to backward step
+// This allows to attach a lambda function to any node during the execution. It is a non-operation otherwise
+// i.e. doesn't consume any memory or take any time to execute (it's a reshape onto itself) other than the
+// compute in the lambda function. It gets called after the forward step of the argument node.
+class CallbackNodeOp : public ReshapeNodeOp {
+private:
+  typedef std::function<void(Expr)> LambdaNodeCallback;
+  std::unique_ptr<LambdaNodeCallback> callback_;
+  
+public:
+  CallbackNodeOp(Expr node, LambdaNodeCallback callback)
+  : ReshapeNodeOp(node, node->shape()), 
+    callback_(new LambdaNodeCallback(callback)) {
+  }
+
+  void forward() override {
+    (*callback_)(ReshapeNodeOp::reshapee_);
+  }
+
+  const std::string type() override { return "callback"; }
+
+  virtual size_t hash() override {
+    size_t seed = ReshapeNodeOp::hash();
+    util::hash_combine(seed, callback_.get());
+    return seed;
+  }
+
+  virtual bool equal(Expr node) override {
+    if(!ReshapeNodeOp::equal(node))
+      return false;
+    auto cnode = std::dynamic_pointer_cast<CallbackNodeOp>(node);
+    if(!cnode)
+      return false;
+    if(callback_ != cnode->callback_)   // pointer compare on purpose
+      return false;
+    return true;
+  }
+};
+
+class DropoutReluInplaceNodeOp : public ReshapeNodeOp {
+private:
+  Expr mask_;
+  
+public:
+  DropoutReluInplaceNodeOp(Expr node, Expr mask)
+  : ReshapeNodeOp(node, node->shape()), 
+    mask_(mask) {}
+
+  void forward() override {
+    using namespace marian::functional;
+    Element(_1 = ReLU(_1 * _2), val(), mask_->val());
+  }
+
+  void backward() override {
+    using namespace marian::functional;
+    Element(_1 = _1 * ReLUback(_2) * _3, grad(), val(), mask_->val());
+  }
+
+  const std::string type() override { return "dropoutReluInplace"; }
+
+  virtual size_t hash() override {
+    size_t seed = ReshapeNodeOp::hash();
+    util::hash_combine(seed, mask_->hash());
+    return seed;
+  }
+
+  virtual bool equal(Expr node) override {
+    if(!ReshapeNodeOp::equal(node))
+      return false;
+    auto cnode = std::dynamic_pointer_cast<DropoutReluInplaceNodeOp>(node);
+    if(!cnode)
+      return false;
+    if(mask_ != cnode->mask_)
       return false;
     return true;
   }

@@ -370,10 +370,7 @@ Ptr<IModel> createModelFromOptions(Ptr<Options> options, usage use) {
   // add (log)softmax if requested
   if (use == usage::translation) {
     if(std::dynamic_pointer_cast<EncoderDecoder>(baseModel)) {
-      if(options->get<bool>("output-sampling", false))
-        return New<Stepwise>(std::dynamic_pointer_cast<EncoderDecoder>(baseModel), New<GumbelSoftmaxStep>());
-      else
-        return New<Stepwise>(std::dynamic_pointer_cast<EncoderDecoder>(baseModel), New<LogSoftmaxStep>());
+      return New<Stepwise>(std::dynamic_pointer_cast<EncoderDecoder>(baseModel), New<LogSoftmaxStep>());
     }
 #ifdef COMPILE_EXAMPLES
     // note: 'usage::translation' here means 'inference'

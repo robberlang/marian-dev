@@ -15,6 +15,26 @@
 
 namespace marian {
 
+class ShapeSizeException : public std::exception {
+private:
+  char* message_;
+
+public:
+  ShapeSizeException(size_t available, size_t asked) {
+    std::string mstr = "Expanded shape size " + std::to_string(asked)
+                       + " exceeds numeric capcacity " + std::to_string(available);
+
+    message_ = new char[mstr.size() + 1];
+    std::copy(mstr.begin(), mstr.end(), message_);
+    message_[mstr.size()] = 0;
+  }
+
+  ~ShapeSizeException() { delete[] message_; }
+
+  virtual const char* what() const noexcept override { return message_; }
+};
+
+
 struct Slice // Python-like slice/index descriptor
 {
   Slice(int b, int e, int s) : begin(b), end(e), stride(s) {}
@@ -31,6 +51,14 @@ struct Slice // Python-like slice/index descriptor
 };
 typedef std::vector<Slice> Slices;
 
+/**
+ * Shape class mainly defines the shape or dimensionality of the node.
+ * Basically, Shape is a wrapper of a std::vector. Its size is the number of
+ * dimension. E.g., shape={2,3} means 2D matrix with dim[0]=2 and dim[1]=3.
+ * WHen the index is negative, the real index is size() + index.
+ * It implements most common functions demanded by operations, e.g., resize(),
+ * slice(), and broadcast().
+ */
 struct Shape {
 private:
   std::vector<int> shape_;
@@ -54,7 +82,7 @@ public:
 
   inline size_t size() const { return shape_.size(); }
 
-  void resize(size_t n) { shape_.resize(n, 1); }
+  void resize(size_t n) { shape_.resize(n, 1); } // @TODO: this should respect shape semantics? Currently behaves like vector which is the wrong way around.
 
   const int* data() const { return shape_.data(); }
   int* data() { return shape_.data(); }
@@ -105,10 +133,12 @@ public:
 
   template<typename T = int> // using a template so that FactoredSegmenter, which uses this as well, can pass size_t
   inline T elements() const {
-    T el = 1;
+    size_t el = 1;
     for(auto s : shape_)
-      el *= (T)s;
-    return el;
+      el *= (size_t)s;
+    if(el > std::numeric_limits<T>::max())
+      throw ShapeSizeException(std::numeric_limits<T>::max(), el);
+    return (T)el;
   }
 
   inline void dims(int i, std::vector<int>& d) const {

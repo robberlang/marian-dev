@@ -69,6 +69,19 @@ private:
   Word spaceToken_;
   bool hasTerminologyConstraints_{false};
 
+  // Contains control characters added to vocab due to byte-fallback
+  std::vector<Word> controlChars_;
+
+  // Creates the first 32 control characters as done in byte-fallback and checks if they exist in the vocab.
+  // This makes sure that we do not waste computational effort on suppression if they don't actually appear.
+  void populateControlChars() {
+    for(int i = 0; i < 32; ++i) {
+      std::string bytePiece = fmt::format("<0x{:02X}>", i); // 0 becomes <0x00>, 10 becomes <0x0A>, note uppercase A and lowercase x
+      auto id = spm_->PieceToId(bytePiece);
+      if(id != spm_->unk_id())
+        controlChars_.push_back(Word::fromWordIndex(id));
+    }
+  }
   // Sample from one file, based on first algorithm from:
   // https://en.wikipedia.org/wiki/Reservoir_sampling
   void reservoirSampling(std::vector<std::string>& sample, size_t& seenLines,
@@ -847,13 +860,14 @@ public:
   }
 
   std::string decode(const Words& sentenceIn,
-                     bool /*ignoreEOS*/,
+                     bool ignoreEOS,
                      InputFormat inputFormat,
                      bool entitizeTags) const override {
     std::string line;
     if(keepEncoded_) {  // i.e. keep the sentence segmented into subword units
       for(const Word& id : sentenceIn)
-        line += (!id.getMarkupTag() ? (*this)[id] : id.getMarkupTag()->tag()) + " ";
+        if(!ignoreEOS || id != getEosId())
+          line += (!id.getMarkupTag() ? (*this)[id] : id.getMarkupTag()->tag()) + " ";
       line.pop_back();  // trim the trailing whitespace
     } else {
       // convert vector of Word to vector of int
@@ -862,8 +876,10 @@ public:
         spmSentence.reserve(sentenceIn.size());
         for(size_t i = 0; i < sentenceIn.size(); ++i) {
           const auto& word = sentenceIn[i];
-          WordIndex wordIndex = word.toWordIndex();
-          spmSentence.push_back(wordIndex);
+          if(!ignoreEOS || word != getEosId()) {
+            WordIndex wordIndex = word.toWordIndex();
+            spmSentence.push_back(wordIndex);
+          }
         }
         spm_->Decode(spmSentence, &line);
       } else {
@@ -1364,11 +1380,23 @@ public:
     const char spaceSymbol[] = {(char)0xe2, (char)0x96, (char)0x81, 0x00};
     spaceToken_ = (*this)[(std::string(spaceSymbol))];
     spaceToken_.setIsSpecialSymbol(true);
+    populateControlChars();
     return spm_->GetPieceSize();
   }
 
   std::string toUpper(const std::string& line) const override { return utils::utf8ToUpper(line); }
   std::string toEnglishTitleCase(const std::string& line) const override { return utils::toEnglishTitleCase(line); }
+
+  // SentencePiece with byte-fallback may generate control symbols with output sampling.
+  // Let's mark them as special and suppress them later on output. This is generally safe
+  // for UTF-8 since control chars are not used as partial bytes in multi-byte sequences.
+  // They only appear in single-byte chars as themselves and this is what we suppress.
+  void addSpecialWords(std::vector<Word>& special) const override {
+    special.reserve(special.size() + controlChars_.size());
+    for(auto c : controlChars_)
+      special.push_back(c);
+  }
+
 };
 #endif // USE_SENTENCEPIECE
 

@@ -2,6 +2,7 @@
 
 #include <string>
 #include "marian.h"
+#include "common/io_item.h"
 #include "layers/loss.h"
 #include "layers/generic.h"
 
@@ -24,10 +25,17 @@ public:
                     const std::string&,
                     bool markReloaded = true)
       = 0;
+
+  virtual void load(Ptr<ExpressionGraph>,
+                    const std::vector<io::Item>&,
+                    bool markReloaded = true)
+      = 0;
+
   virtual void mmap(Ptr<ExpressionGraph>,
                     const void*,
                     bool markReloaded = true)
       = 0;
+
   virtual void save(Ptr<ExpressionGraph>,
                     const std::string&,
                     bool saveTranslatorConfig = false)
@@ -51,10 +59,17 @@ public:
                     const std::string&,
                     bool markReloaded = true)
       = 0;
+
+  virtual void load(Ptr<ExpressionGraph>,
+                    const std::vector<io::Item>&,
+                    bool markReloaded = true)
+      = 0;
+
   virtual void mmap(Ptr<ExpressionGraph>,
                     const void*,
                     bool markReloaded = true)
       = 0;
+
   virtual void save(Ptr<ExpressionGraph>,
                     const std::string&,
                     bool saveTranslatorConfig = false)

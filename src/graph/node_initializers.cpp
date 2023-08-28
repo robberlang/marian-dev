@@ -11,6 +11,15 @@ namespace marian {
 
 namespace inits {
 
+class DummyInit : public NodeInitializer {
+public:
+  void apply(Tensor tensor) override {
+    tensor;
+  }
+};
+
+Ptr<NodeInitializer> dummy() { return New<DummyInit>(); }
+
 class LambdaInit : public NodeInitializer {
   private:
     std::function<void(Tensor)> lambda_;
@@ -26,7 +35,7 @@ class LambdaInit : public NodeInitializer {
 class LambdaInitConvert : public NodeInitializer {
   private:
     std::function<void(Tensor)> lambda_;
-    Type intermediateType_; // is used for the creation of a temporary intermedia tensor on which the lambda actually operates.
+    Type intermediateType_; // is used for the creation of a temporary intermediate tensor on which the lambda actually operates.
                             // This tensor is then automatically cast and copied to the type of the actual tensor. 
 
   public:
@@ -98,9 +107,10 @@ Ptr<NodeInitializer> glorotUniform(bool fanIn, bool fanOut, float scalingFactor)
   return fromLambda([fanIn, fanOut, scalingFactor](Tensor t) {
     float scale = sqrtf(6.0f / (t->shape()[-2] + t->shape()[-1]));
     if(fanIn && !fanOut)
-      scale = sqrtf(3.0f / t->shape()[-2]); // results in columns of matrix to be ~unit length
+      scale = sqrtf(3.0f / t->shape()[-2]); // fanIn mode: the scale of tensor is adapted by the input variance
+                                            // results in columns of matrix to be ~unit range
     if(!fanIn && fanOut)
-      scale = sqrtf(3.0f / t->shape()[-1]);
+      scale = sqrtf(3.0f / t->shape()[-1]); // fanOut mode: the scale of tensor is adapted by the output variance
 
     scale *= scalingFactor;
 
@@ -112,9 +122,9 @@ Ptr<NodeInitializer> glorotNormal(bool fanIn, bool fanOut, float scalingFactor) 
   return fromLambda([fanIn, fanOut, scalingFactor](Tensor t) {
     float scale = sqrtf(2.0f / (t->shape()[-2] + t->shape()[-1]));
     if(fanIn && !fanOut)
-      scale = sqrtf(1.0f / t->shape()[-2]);
+      scale = sqrtf(1.0f / t->shape()[-2]); // fanIn mode: the scale of tensor is adapted by the input variance
     if(!fanIn && fanOut)
-      scale = sqrtf(1.0f / t->shape()[-1]);
+      scale = sqrtf(1.0f / t->shape()[-1]); // fanOut mode: the scale of tensor is adapted by the output variance
 
     scale *= scalingFactor;
 
@@ -170,7 +180,7 @@ Ptr<NodeInitializer> fromWord2vec(const std::string& file,
                               bool normalize /*= false*/) {
   return fromLambda([file, dimVoc, dimEmb, normalize](Tensor t) {
     auto embs = Word2VecReader().read(file, dimVoc, dimEmb);
-    if(normalize) {
+    if(normalize) { // scaling to unit length:
       float norm = 0;
       for(auto e : embs)
         norm += e * e;
@@ -213,24 +223,7 @@ Ptr<NodeInitializer> fromTensor(Tensor externalTensor) {
 
 // Computes Google's sinusoidal position embeddings
 Ptr<NodeInitializer> sinusoidalPositionEmbeddings(int start) {
-  return fromLambda([start](Tensor t) {
-    int dimEmb   = t->shape()[-1];
-    int dimWords = (int)t->size() / dimEmb;
-
-    float numTimescales = (float)dimEmb / 2;
-    float logTimescaleIncrement = std::log(10000.f) / (numTimescales - 1.f);
-
-    std::vector<float> vPos(dimEmb * dimWords, 0);
-    for(int p = start; p < dimWords + start; ++p) {
-      for(int i = 0; i < numTimescales; ++i) {
-        float v = p * std::exp(i * -logTimescaleIncrement);
-        vPos[(p - start) * dimEmb + i                     ] = std::sin(v);
-        vPos[(p - start) * dimEmb + (int)numTimescales + i] = std::cos(v); // @TODO: is int vs. float correct for num_timescales?
-      }
-    }
-
-    t->set(vPos);
-  }, Type::float32);
+  return fromLambda([start](Tensor t) { SinusoidalPositionEmbeddings(t, start); }); 
 }
 
 // computes the equivalent of Python's range()
@@ -253,24 +246,3 @@ template Ptr<NodeInitializer> range<IndexType>(IndexType begin, IndexType end, I
 }  // namespace inits
 }  // namespace marian
 
-
-#if BLAS_FOUND
-#include "faiss/VectorTransform.h"
-
-namespace marian {
-namespace inits {
-
-Ptr<NodeInitializer> randomRotation(size_t seed) {
-  auto rot = [=](Tensor t) {
-    int rows = t->shape()[-2];
-    int cols = t->shape()[-1];
-    faiss::RandomRotationMatrix rrot(cols, rows); // transposed in faiss
-    rrot.init((int)seed);
-    t->set(rrot.A);
-  };
-  return fromLambda(rot, Type::float32);
-}
-
-}  // namespace inits
-}  // namespace marian
-#endif

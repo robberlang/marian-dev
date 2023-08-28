@@ -3,8 +3,10 @@
 #include "common/definitions.h"
 #include "common/shape.h"
 #include "common/types.h"
+#include "tensors/allocator.h"
 #include "tensors/backend.h"
 #include "tensors/memory_piece.h"
+
 #ifdef CUDA_FOUND
 #include "tensors/gpu/algorithm.h"
 #endif
@@ -21,6 +23,12 @@ namespace io {
   struct Item;
 }
 
+/**
+ * Main implementation of a <a href="https://en.wikipedia.org/wiki/Tensor">tensor</a>,
+ * a multi-dimensional matrix containing elements of a single data type.
+ * TensorBase contains the data, data type, pointer to
+ * memory region, shape, backend info and other attributes.
+ */
 class TensorBase {
   MemoryPiece::PtrType memory_;
   Shape shape_;
@@ -29,7 +37,8 @@ class TensorBase {
 
   ENABLE_INTRUSIVE_PTR(TensorBase)
 
-  // Constructors are private, use TensorBase::New(...)
+protected:
+  // Constructors are protected, use TensorBase::New(...)
   TensorBase(MemoryPiece::PtrType memory,
              Shape shape,
              Type type,
@@ -55,10 +64,10 @@ class TensorBase {
         shape_(shape), type_(type), backend_(backend) {}
 
 public:
-  // Use this whenever pointing to MemoryPiece
+  // Use this whenever pointing to TensorBase
   typedef IPtr<TensorBase> PtrType;
 
-  // Use this whenever creating a pointer to MemoryPiece
+  // Use this whenever creating a pointer to TensorBase
   template <class ...Args>
   static PtrType New(Args&& ...args) {
     return PtrType(new TensorBase(std::forward<Args>(args)...));
@@ -187,6 +196,33 @@ public:
     set(v.data(), v.data() + v.size());
   }
 
+  // a binary copy with type checking
+  void set(const char* begin, const char* end, Type type) {
+    ABORT_IF(type_ != type,
+             "Tensor type ({}) and data type ({}) do not match",
+             type_,
+             type);
+
+    size_t dataSize = (end - begin) / sizeOf(type);
+    ABORT_IF(size() != dataSize,
+             "Tensor size ({}) and mapped size ({}) do not match",
+             size(),
+             dataSize);
+
+    if(backend_->getDeviceId().type == DeviceType::cpu) {
+      std::copy(begin, end, data<char>());
+    }
+#ifdef CUDA_FOUND
+    else {
+      gpu::copy(backend_, begin, end, data<char>());
+    }
+#endif
+  }
+
+  void set(const std::vector<char>& v, Type type) {
+    set(v.data(), v.data() + v.size(), type);
+  }
+
   void set(const io::Item& item);
 
   // For single values enable conversion to other numeric formats if possible
@@ -292,6 +328,15 @@ public:
   std::string debug(int precision = 8, int dispCols = 5) {
     DISPATCH_BY_TYPE2(type_, debug, precision, dispCols);
   }
+
+  // Computes a hash value for the given tensor, for a cpu-side tensor this is 
+  // going to be the hash function from stdlib (64-bit), for gpu-side tensors
+  // it is going to be the result of a mumurhash3-like hash (32-bit).
+  // The argument seed can be used to define a new random hash function. 
+  // The allocator argument can be used to allocate memory via the standard 
+  // marian allocator instead of cudaMalloc (the default).
+  // The hashes are not the same for cpu and gpu!
+  size_t hash(size_t seed = 0, Ptr<Allocator> allocator = nullptr);
 
 };
 

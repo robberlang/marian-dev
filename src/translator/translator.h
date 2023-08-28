@@ -8,6 +8,9 @@
 #include "data/shortlist.h"
 #include "data/text_input.h"
 
+#include "common/scheduling_parameter.h"
+#include "common/timer.h"
+
 #include "3rd_party/threadpool.h"
 
 #include "translator/history.h"
@@ -35,7 +38,8 @@ private:
 
   size_t numDevices_;
 
-  std::vector<mio::mmap_source> mmaps_;
+  std::vector<mio::mmap_source> model_mmaps_; // map
+  std::vector<std::vector<io::Item>> model_items_; // non-mmap
 
 public:
   Translate(Ptr<Options> options)
@@ -53,9 +57,12 @@ public:
     trgVocab_->load(vocabs.back());
     auto srcVocab = corpus_->getVocabs()[0];
 
-    if(options_->hasAndNotEmpty("shortlist"))
-      shortlistGenerator_ = New<data::LexicalShortlistGenerator>(
-          options_, srcVocab, trgVocab_, 0, 1, vocabs.front() == vocabs.back());
+    std::vector<int> lshOpts = options_->get<std::vector<int>>("output-approx-knn", {});
+    ABORT_IF(lshOpts.size() != 0 && lshOpts.size() != 2, "--output-approx-knn takes 2 parameters");
+
+    if (lshOpts.size() == 2 || options_->hasAndNotEmpty("shortlist")) {
+      shortlistGenerator_ = data::createShortlistGenerator(options_, srcVocab, trgVocab_, lshOpts, 0, 1, vocabs.front() == vocabs.back());
+    }
 
     auto devices = Config::getDevices(options_);
     numDevices_ = devices.size();
@@ -64,11 +71,19 @@ public:
     scorers_.resize(numDevices_);
     graphs_.resize(numDevices_);
 
+    auto models = options->get<std::vector<std::string>>("models");
     if(options_->get<bool>("model-mmap", false)) {
-      auto models = options_->get<std::vector<std::string>>("models");
       for(auto model : models) {
         ABORT_IF(!io::isBin(model), "Non-binarized models cannot be mmapped");
-        mmaps_.push_back(mio::mmap_source(model));
+        LOG(info, "Loading model from {}", model);
+        model_mmaps_.push_back(mio::mmap_source(model));
+      }
+    }
+    else {
+      for(auto model : models) {
+        LOG(info, "Loading model from {}", model);
+        auto items = io::loadItems(model);
+        model_items_.push_back(std::move(items));
       }
     }
 
@@ -79,15 +94,22 @@ public:
         auto prec = options_->get<std::vector<std::string>>("precision", {"float32"});
         graph->setDefaultElementType(typeFromString(prec[0]));
         graph->setDevice(device);
-        graph->reserveWorkspaceMB(options_->get<size_t>("workspace"));
+        if (device.type == DeviceType::cpu) {
+          graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
+          graph->getBackend()->setGemmType(options_->get<std::string>("gemm-type"));
+          graph->getBackend()->setQuantizeRange(options_->get<float>("quantize-range"));
+        }
+        graph->reserveWorkspaceMB(options_->get<int>("workspace"));
         graphs_[id] = graph;
 
         std::vector<Ptr<Scorer>> scorers;
         if(options_->get<bool>("model-mmap", false)) {
-          scorers = createScorers(options_, mmaps_);
-        } else {
-          scorers = createScorers(options_);
+          scorers = createScorers(options_, model_mmaps_);
         }
+        else {
+          scorers = createScorers(options_, model_items_);
+        }
+
         for(auto scorer : scorers) {
           scorer->init(graph);
           if(shortlistGenerator_)
@@ -101,7 +123,7 @@ public:
       threadPool.enqueue(task, device, id++);
     }
 
-    if(options_->get<bool>("output-sampling", false)) {
+    if(options_->hasAndNotEmpty("output-sampling")) {
       if(options_->get<size_t>("beam-size") > 1)
         LOG(warn,
             "[warning] Output sampling and beam search (beam-size > 1) are contradictory methods "
@@ -124,11 +146,33 @@ public:
     if(options_->get<bool>("quiet-translation"))
       collector->setPrintingStrategy(New<QuietPrinting>());
 
-    bg.prepare();
+    // mutex for syncing counter and timer updates
+    std::mutex syncCounts;
+
+    // timer and counters for total elapsed time and statistics
+    std::unique_ptr<timer::Timer> totTimer(new timer::Timer());
+    size_t totBatches      = 0;
+    size_t totLines        = 0;
+    size_t totSourceTokens = 0;
+
+    // timer and counters for elapsed time and statistics between updates
+    std::unique_ptr<timer::Timer> curTimer(new timer::Timer());
+    size_t curBatches      = 0;
+    size_t curLines        = 0;
+    size_t curSourceTokens = 0;
+
+    // determine if we want to display timer statistics, by default off
+    auto statFreq = SchedulingParameter::parse(options_->get<std::string>("stat-freq", "0u"));
+    // abort early to avoid potentially costly batching and translation before error message
+    ABORT_IF(statFreq.unit != SchedulingUnit::updates, "Units other than 'u' are not supported for --stat-freq value {}", statFreq);
 
     bool doNbest = options_->get<bool>("n-best");
+
+    bg.prepare();
     for(auto batch : bg) {
-      auto task = [=](size_t id) {
+      auto task = [=, &syncCounts,
+                      &totBatches, &totLines, &totSourceTokens, &totTimer,
+                      &curBatches, &curLines, &curSourceTokens, &curTimer](size_t id) {
         size_t deviceIndex = id % numDevices_;
         thread_local Ptr<ExpressionGraph> graph = graphs_[deviceIndex];
         thread_local std::vector<Ptr<Scorer>> scorers = scorers_[deviceIndex];
@@ -146,19 +190,51 @@ public:
                            doNbest);
         }
 
+        // if we asked for speed information display this
+        if(statFreq.n > 0) {
+          std::lock_guard<std::mutex> lock(syncCounts);
+          totBatches++;
+          totLines        += batch->size();
+          totSourceTokens += batch->front()->batchWords();
 
-        // progress heartbeat for MS-internal Philly compute cluster
-        // otherwise this job may be killed prematurely if no log for 4 hrs
-        if (getenv("PHILLY_JOB_ID")   // this environment variable exists when running on the cluster
-            && id % 1000 == 0)  // hard beat once every 1000 batches
-        {
-          auto progress = 0.f; //fake progress for now
-          fprintf(stderr, "PROGRESS: %.2f%%\n", progress);
-          fflush(stderr);
+          curBatches++;
+          curLines        += batch->size();
+          curSourceTokens += batch->front()->batchWords();
+
+          if(totBatches % statFreq.n == 0) {
+            double totTime = totTimer->elapsed();
+            double curTime = curTimer->elapsed();
+
+            LOG(info,
+                "Processed {} batches, {} lines, {} source tokens in {:.2f}s - Speed (since last): {:.2f} batches/s - {:.2f} lines/s - {:.2f} tokens/s",
+                totBatches, totLines, totSourceTokens, totTime, curBatches / curTime, curLines / curTime, curSourceTokens / curTime);
+
+            // reset stats between updates
+            curBatches = curLines = curSourceTokens = 0;
+            curTimer.reset(new timer::Timer());
+          }
         }
       };
 
       threadPool.enqueue(task, batchId++);
+    }
+
+    // make sure threads are joined before other local variables get de-allocated
+    threadPool.join_all();
+
+    // display final speed numbers over total translation if intermediate displays were requested
+    if(statFreq.n > 0) {
+      double totTime = totTimer->elapsed();
+      LOG(info,
+          "Processed {} batches, {} lines, {} source tokens in {:.2f}s - Speed (total): {:.2f} "
+          "batches/s - {:.2f} lines/s - {:.2f} tokens/s",
+          totBatches,
+          totLines,
+          totSourceTokens,
+          totTime,
+          totBatches / totTime,
+          totLines / totTime,
+          totSourceTokens / totTime);
     }
   }
 };
