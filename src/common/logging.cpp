@@ -65,9 +65,10 @@ bool setLoggingLevel(spdlog::logger& logger, std::string const level) {
 }
 
 static void setErrorHandlers();
-void createLoggers(const marian::Config* config) {
+std::vector<Logger> createLoggers(const marian::Config* config) {
   std::vector<std::string> generalLogs;
   std::vector<std::string> validLogs;
+  std::vector<Logger> loggers;
 
   if(config && !config->get<std::string>("log").empty()) {
     generalLogs.push_back(config->get<std::string>("log"));
@@ -84,12 +85,14 @@ void createLoggers(const marian::Config* config) {
 
   bool quiet = config && config->get<bool>("quiet");
   Logger general{createStderrLogger("general", "[%Y-%m-%d %T.%e] [%t] [%l] %v", generalLogs, quiet)};
+  loggers.push_back(general);
   Logger valid{createStderrLogger("valid", "[%Y-%m-%d %T.%e] [%t] [%l] [valid] %v", validLogs, quiet)};
+  loggers.push_back(valid);
 
   if(config && config->has("log-level")) {
     std::string loglevel = config->get<std::string>("log-level");
     if(!setLoggingLevel(*general, loglevel))
-      return;
+      return loggers;
     setLoggingLevel(*valid, loglevel);
   }
 
@@ -103,6 +106,7 @@ void createLoggers(const marian::Config* config) {
   }
 
   setErrorHandlers();
+  return loggers;
 }
 
 static void unhandledException() {
@@ -124,7 +128,7 @@ static void setErrorHandlers() {
   std::set_terminate(unhandledException);
 #ifdef __unix__
   // catch segfaults
-  struct sigaction sa = { {0} };
+  struct sigaction sa = {};
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_SIGINFO;
   sa.sa_sigaction = [](int /*signal*/, siginfo_t*, void*) { ABORT("Segmentation fault"); };
@@ -145,8 +149,8 @@ void switchtoMultinodeLogging(std::string nodeIdStr) {
 
 namespace marian {
   std::string noinline getCallStack(size_t skipLevels) {
-  #ifdef WASM_COMPATIBLE_SOURCE
-    return "Callstacks not supported in WASM builds currently";
+  #if defined(WASM_COMPATIBLE_SOURCE) || defined(__ANDROID__)
+    return "Callstacks not supported in WASM or Android builds currently";
   #else
     return ::Microsoft::MSR::CNTK::DebugUtil::GetCallStack(skipLevels + 2, /*makeFunctionNamesStandOut=*/true);
   #endif

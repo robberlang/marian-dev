@@ -31,7 +31,6 @@ void LexicalShortlistGenerator::load(const std::string& fname) {
 }
 
 void LexicalShortlistGenerator::prune(float threshold /* = 0.f*/) {
-  size_t i = 0;
   for(auto& probs : data_) {
     std::vector<std::pair<float, WordIndex>> sorter;
     for(auto& it : probs)
@@ -48,7 +47,6 @@ void LexicalShortlistGenerator::prune(float threshold /* = 0.f*/) {
         break;
     }
 
-    ++i;
   }
 }
 
@@ -319,19 +317,18 @@ void BinaryShortlistGenerator::dump(const std::string& fileName) const {
 void BinaryShortlistGenerator::import(const std::string& filename, double threshold) {
   io::InputFileStream in(filename);
   std::string src, trg;
-
-  // Read text file
-  std::vector<std::unordered_map<WordIndex, float>> srcTgtProbTable;
+  
+  std::vector<std::unordered_map<WordIndex, float>> srcTgtProbTable(srcVocab_->size());
   float prob;
 
+  // Read text file
   while(in >> trg >> src >> prob) {
     if(src == "NULL" || trg == "NULL")
       continue;
 
     auto sId = (*srcVocab_)[src].toWordIndex();
     auto tId = (*trgVocab_)[trg].toWordIndex();
-    if(srcTgtProbTable.size() <= sId)
-      srcTgtProbTable.resize(sId + 1);
+
     if(srcTgtProbTable[sId][tId] < prob)
       srcTgtProbTable[sId][tId] = prob;
   }

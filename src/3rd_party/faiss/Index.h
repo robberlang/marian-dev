@@ -15,6 +15,7 @@
 #include <typeinfo>
 #include <string>
 #include <sstream>
+#include <cstdint>
 
 #define FAISS_VERSION_MAJOR 1
 #define FAISS_VERSION_MINOR 6

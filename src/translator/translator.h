@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <memory>
 
 #include "data/batch_generator.h"
 #include "data/corpus.h"

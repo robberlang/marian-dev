@@ -49,7 +49,7 @@ jobs:
             fbgemm: false
             cuda: true
 
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     name: ${{ matrix.name }}
 
     steps:
@@ -228,7 +228,7 @@ jobs:
   release:
     needs: [build-release-ubuntu, build-release-windows]
 
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     name: Release
 
     steps:

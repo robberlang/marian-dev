@@ -20,10 +20,10 @@ const SentenceTuple& TextIterator::dereference() const {
   return tup_;
 }
 
-TextInput::TextInput(const std::vector<std::string>& inputs,
+TextInput::TextInput(std::vector<std::string> inputs,
                      std::vector<Ptr<Vocab>> vocabs,
                      Ptr<Options> options)
-    : DatasetBase(inputs, options),
+    : DatasetBase(std::move(inputs), options),
       vocabs_(std::move(vocabs)),
       maxLength_(options_->get<size_t>("max-length")),
       maxLengthCrop_(options_->get<bool>("max-length-crop")) {
@@ -67,6 +67,8 @@ SentenceTuple TextInput::next() {
         words.push_back(vocabs_[i]->getEosId());
       }
 
+      ABORT_IF(words.empty(),   "No words (not even EOS) found in string??");
+      ABORT_IF(tup.size() != i, "Previous tuple elements are missing.");
       tup.push_back(words);
     }
   }

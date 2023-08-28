@@ -86,9 +86,8 @@ public:
       // @TODO Hardcoded to find packable weights
       // int8 - all the weights used for affine op and dot op
       // fp16 - all the weights used for affine op
-      if((gemmElementType == Type::packed8avx2 || gemmElementType == Type::packed8avx512)
-         && ((pName.find("_W") == pName.length() - 3 && pName.back() != 't')
-             || pName.find("_W") == pName.length() - 2)) {
+      if ((gemmElementType == Type::packed8avx2 || gemmElementType == Type::packed8avx512)
+        && (pName.find("_W") == pName.length() - 3 || pName.find("_W") == pName.length() - 2)) {
 #if USE_FBGEMM
         using namespace marian::cpu::variant;
         // packing information - size
@@ -134,8 +133,7 @@ public:
         ABORT("Packed type {} only supported when compiled with -DUSE_FBGEMM=on", gemmElementType);
 #endif
       // fp16 quantization option
-      } else if(gemmElementType == Type::packed16 && pName.find("_W") == pName.length() - 3
-                && pName.back() != 't') {
+      } else if (gemmElementType == Type::packed16 && pName.find("_W") == pName.length() - 3) {
 #if USE_FBGEMM
         using namespace marian::cpu::variant;
 
@@ -209,6 +207,9 @@ public:
           Transpose10(tmp, val);
         }
         if (gemmElementType == Type::intgemm8) {
+#if defined(WASM)
+          ABORT("Int8::PrepareA is not implemented for wasm.");
+#elif defined(USE_INTGEMM)
           float quantMult = 127.0f / intgemm::MaxAbsolute(val->data(), val->data() + val->shape().elements());
           intgemm::Int8::PrepareA(tmp->data(), /*input*/
                                 paramMat->data<int8_t>(), /*output*/
@@ -217,7 +218,13 @@ public:
                                 cols(val));
           //Put the quantMult at the back of the tensor
           *(reinterpret_cast<float *>(paramMat->data<int8_t>() + val->shape().elements())) = quantMult;
+#else
+    ABORT("Int8::PrepareA not implemented yet for ruy");
+#endif
         } else {
+#if defined(WASM)
+          ABORT("Int16::PrepareA is not implemented for wasm.");
+#elif defined(USE_INTGEMM)
           float quantMult = 1024.0f;
           intgemm::Int16::PrepareA(tmp->data(), /*input*/
                                 paramMat->data<int16_t>(), /*output*/
@@ -226,6 +233,9 @@ public:
                                 cols(val));
           //Put the quantMult at the back of the tensor
           *(reinterpret_cast<float *>(paramMat->data<int16_t>() + val->shape().elements())) = quantMult;
+#else
+      ABORT("Int16::PrepareA is not implemented for wasm.");
+#endif
         }
 
         //Save... Same as the fbgemm case

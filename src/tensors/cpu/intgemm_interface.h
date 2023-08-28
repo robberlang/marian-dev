@@ -1,7 +1,4 @@
 #pragma once
-
-#include "graph/node.h"
-#include "graph/node_operators_unary.h"
 #include "integer_common.h"
 
 namespace marian {
@@ -30,23 +27,36 @@ bool shifted_;
 
   NodeOps forwardOps() override {
 #ifdef COMPILE_CPU
-    return {NodeOp(
+    return { [=]() {
       quantMult_ = *child(1)->val()->data();
-      typedef typename intgemm_<vtype>::type Integer;
+  #if defined(WASM)
+      ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+        "Int16::PrepareA is not implemented for wasm.");
+      ABORT_IF(!shifted_, "Int8::PrepareA is not implemented for wasm. Please use shifted version.");
+      int8PrepareA(child(0)->val()->data(), // input
+                  *child(1)->val()->data(), // Scale
+                  0, // zero point
+                  rows(child(0)->val()),
+                  cols(child(0)->val()),
+                  val_->data<int8_t>() /*output*/);
+  #elif defined(USE_INTGEMM)
+    typedef typename intgemm_<vtype>::type Integer;
+      auto input = child(0)->val();
       if (!shifted_) {
-        intgemm_<vtype>::width::PrepareA(child(0)->val()->data(), /*input*/
+        intgemm_<vtype>::width::PrepareA(input->data(), /*input*/
                                       val_->data<Integer>(), /*output*/
                                       *child(1)->val()->data(), /*Quant Mult*/
                                       rows(child(0)->val()),
                                       cols(child(0)->val()));
       } else {
-        intgemm::Int8Shift::PrepareA(child(0)->val()->data(), /*input*/
+        intgemm::Int8Shift::PrepareA(input->data(), /*input*/
                                       val_->data<int8_t>(), /*output*/
                                       *child(1)->val()->data(), /*Quant Mult*/
                                       rows(child(0)->val()),
                                       cols(child(0)->val()));
       }
-    )};
+  #endif
+  }};
 #else
     return {NodeOp()};
 #endif
@@ -64,32 +74,67 @@ template<Type vtype>
 struct PrepareBNodeOp : public NaryNodeOp {
 float clipValue_;
 float quantMult_;
+bool transposed_; /*This is only used for the output layer which has a different layout from
+                   *all other matrices in the code. By default we shouldn't do an extra transpose.*/
 
-  PrepareBNodeOp(Expr input, Expr quant_mult, float clipValue)
-      : NaryNodeOp({input, quant_mult}, input->shape(), intgemm_<vtype>::intgemmType), clipValue_(clipValue) {
+  PrepareBNodeOp(Expr input, Expr quant_mult, float clipValue, bool transposed=false)
+      : NaryNodeOp({input, quant_mult}, newShape(input, transposed), intgemm_<vtype>::intgemmType), clipValue_(clipValue), transposed_(transposed) {
 
     set_name(input->name());
     // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "A cannot be null");
     ABORT_IF(child(1) == nullptr, "Quant mult of B cannot be null");
-    ABORT_IF(input->shape()[-1] %8 != 0, "Columns of matrix: " + input->type() + " must be multiple of 8.");
+    if (!transposed_) {
+      ABORT_IF(input->shape()[-1] %8 != 0, "Columns of matrix: " + input->type() + " must be multiple of 8.");
+    } else {
+      ABORT_IF((input->shape().elements()/input->shape()[-1]) %8 != 0, "Rows of matrix: " + input->type() + " must be multiple of 8.");
+    }
   }
 
   NodeOps forwardOps() override {
 #ifdef COMPILE_CPU
-   return {NodeOp(
+   return { [=]() {
       quantMult_ = *child(1)->val()->data();
-      typedef typename intgemm_<vtype>::type Integer;
       if (isIntgemm(child(0)->value_type())) {
         val_ = child(0)->val();
       } else {
-        intgemm_<vtype>::width::PrepareB(child(0)->val()->data(), /*input*/
+#if defined(WASM)
+        ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+                "Int16::PrepareB is not implemented for wasm.");
+        if (!transposed_) {
+          int8PrepareB(child(0)->val()->data(), //input
+                      *child(1)->val()->data(), //Scale
+                      0, //Zero point
+                      rows(child(0)->val()), // width
+                      cols(child(0)->val()), // cols_B
+                      val_->data<int8_t>()); /*output*/
+        } else {
+          int8PrepareBFromTransposed(child(0)->val()->data(), //input
+                               *child(1)->val()->data(), //Scale,
+                               0, //Zero point
+                               cols(child(0)->val()),
+                               rows(child(0)->val()),
+                               val_->data<int8_t>()); /*output*/
+        }
+#else
+        if (!transposed_) {
+          typedef typename intgemm_<vtype>::type Integer;
+          intgemm_<vtype>::width::PrepareB(child(0)->val()->data(), /*input*/
+                                        val_->data<Integer>(), /*output*/
+                                        *child(1)->val()->data(), /*Quant Mult*/
+                                        rows(child(0)->val()),
+                                        cols(child(0)->val()));
+        } else {
+          typedef typename intgemm_<vtype>::type Integer;
+          intgemm_<vtype>::width::PrepareBTransposed(child(0)->val()->data(), /*input*/
                                       val_->data<Integer>(), /*output*/
                                       *child(1)->val()->data(), /*Quant Mult*/
-                                      rows(child(0)->val()),
-                                      cols(child(0)->val()));
+                                      cols(child(0)->val()), /*Cols and rows need to be swapped*/
+                                      rows(child(0)->val())); /*Cols and rows need to be swapped*/
+        }
+#endif
       }
-    )};
+    }};
 #else
    return {NodeOp()};
 #endif
@@ -101,6 +146,17 @@ float quantMult_;
   }
 
   const std::string type() override { return "intgemmPrepareB"; }
+
+  static Shape newShape(Expr input, bool transposed) {
+    Shape ret = input->shape();
+    if (transposed) {
+      ret.set(0, input->shape()[-1]);
+      ret.set(1, input->shape()[0]);
+    } else {
+      ret = input->shape();
+    }
+    return ret;
+  }
 };
 
 template<Type vtype>
@@ -112,7 +168,7 @@ public:
       : UnaryNodeOp(input, newShape(input, indices), intgemm_<vtype>::intgemmType), clipValue_(clipValue), indices_(indices) {
 
     set_name(input->name());
-    setMemoize(false); // Enabling memoization leads to a massive memory leak. Instead use special "midterm" memory.
+    setMemoize(false); // Enabling memoization leads to a massive memory leak. 
                        // Still, I don't understand why setMemoize(true) still leaks.
     // Check if arguments are not null
     ABORT_IF(child(0) == nullptr, "B cannot be null");
@@ -123,7 +179,7 @@ public:
 
   NodeOps forwardOps() override {
 #ifdef COMPILE_CPU
-    return {NodeOp(
+    return { [=]() {
       //We get the quantization multiplier from a PrepareB or directly from the input
       if (child(0)->type() == "intgemmPrepareB") {
         auto bPreppedNode = std::static_pointer_cast<PrepareBNodeOp<vtype> >(child(0));
@@ -133,14 +189,26 @@ public:
         quantMult_ = *(reinterpret_cast<float *>(reinterpret_cast<Integer *>(child(0)->val()->data()) + child(0)->val()->shape().elements()));
       }
       auto input = child(0)->val();
+  #if defined(WASM)
+      ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+                "Int16::SelectColumnsB is not implemented for wasm.");
+      Index num_cols = std::distance(indices_.begin(), indices_.end());
+      int8SelectColumnsOfB(reinterpret_cast<int8_t *>(input->data()),
+                    rows(input),
+                    cols(input),
+                    &*indices_.begin(),
+                    num_cols,
+                    val_->data<int8_t>());
+  #else
       typedef typename intgemm_<vtype>::type Integer;
       intgemm_<vtype>::width::SelectColumnsB(
                     reinterpret_cast<Integer *>(input->data()),
                     val_->data<Integer>(),
                     rows(input),
-                    &*indices_.begin(),
-                    &*indices_.end());
-    )};
+                    indices_.data(),
+                    indices_.data()+indices_.size());
+  #endif
+    }};
 #else
     return {NodeOp()};
 #endif
@@ -188,8 +256,8 @@ struct QuantMultNodeOp : public UnaryNodeOp {
 #pragma warning(push)
 #pragma warning(disable: 4127) //VSCODE thinks line 222 is constant conditional expression, which it is only after the template resolution, not before.
   NodeOps forwardOps() override {
-#ifdef COMPILE_CPU
-    return {NodeOp(
+    return  {[=](){
+    #ifdef COMPILE_CPU
       if (vtype == Type::int16) {
         *val_->data() = 1024.0f;
       } else if (child(0)->type() == "intgemmSelectColumnsB") {
@@ -199,17 +267,20 @@ struct QuantMultNodeOp : public UnaryNodeOp {
         *val_->data() = *(reinterpret_cast<float *>(reinterpret_cast<Integer *>(child(0)->val()->data()) + child(0)->val()->shape().elements()));
       } else {
         if (child(0)->graph()->getBackend()->DumpQuantMult()) {
+          #if defined(USE_INTGEMM)
           intgemm::MeanStd meanstd = intgemm::GetVectorMeanStd(child(0)->val()->data(), child(0)->val()->data() + child(0)->val()->shape().elements(), true);
           intgemm::MeanStd meanstd2 = intgemm::GetVectorMeanStd(child(0)->val()->data(), child(0)->val()->data() + child(0)->val()->shape().elements());
           std::cerr << "Name: " << name() << " MeanAbs: " << meanstd.mean << " stddevAbs: " << meanstd.stddev << " Mean: " << meanstd2.mean << " stddev: "
           << meanstd2.stddev << " MaxAbs: " << intgemm::MaxAbsolute(child(0)->val()->data(), child(0)->val()->data() + child(0)->val()->shape().elements()) << std::endl;
+          #endif
         }
-        *val_->data() = 127.0f / intgemm::MaxAbsolute(child(0)->val()->data(), child(0)->val()->data() + child(0)->val()->shape().elements());
+        auto input = child(0)->val();
+        #if defined(USE_INTGEMM)
+          *val_->data() = 127.0f / intgemm::MaxAbsolute(input->data(), input->data() + input->size());
+        #endif
       }
-    )};
-#else
-    return {NodeOp()};
-#endif
+    #endif // COMPILE_CPU
+    }};
   }
 #pragma warning(pop)
   NodeOps backwardOps() override {
@@ -258,7 +329,7 @@ public:
     //std::cerr << "TrueBias: " << child(0)->name() << " type: " << child(0)->type() << " bQuantMult: " << this->child(3)->val()->data()[0] <<  " aQuantMult: " << this->child(2)->val()->data()[0] << std::endl;
     //std::cerr << "Bias name and val: " << child(0)->name() << " " << child(0)->val()->data()[0] << std::endl;
 #ifdef COMPILE_CPU
-    return {NodeOp(
+    return { [=]() {
       if (alreadyPrepared_) {
         //God Knows why trying to assign the bias tensor to this node causes a crash, the second time it's referenced
         //even though it's supposed to work fine. We use a memory copy instead.
@@ -271,10 +342,18 @@ public:
         auto quant_mult_a = this->child(2)->val();
         auto quant_mult_b = this->child(3)->val();
 
+    #if defined(WASM)
+        float scale_a = *quant_mult_a->data();
+        float scale_b = *quant_mult_b->data();
+        int8PrepareBias((const int8_t *)b->data(), scale_a, 0.0 /*zero_point_a*/, scale_b, 0.0 /*zero_point_b*/, rows(b), cols(b), bias->data(), val_->data());
+    #elif defined(USE_INTGEMM)
         float unquant_mult = (-1)*((127.0f / *quant_mult_a->data())*(127.0f / *quant_mult_b->data()))/(127.0f); //Minus one to invert add_ps later on
         intgemm::Int8Shift::PrepareBias((const int8_t *)b->data(), rows(b), cols(b), intgemm::callbacks::UnquantizeAndAddBiasAndWrite(unquant_mult, bias->data(), val_->data()));
+    #else
+        ABORT("PrepareBias should not be called on ARM");
+    #endif
       }
-      )};
+    }};
 #else
     return {NodeOps()};
 #endif
@@ -297,14 +376,22 @@ public:
   NodeOps forwardOps() override {
     //std::cerr << "FakeBias: " << child(0)->name() << " bQuantMult: " << this->child(2)->val()->data()[0] << " aQuantMult: " << this->child(1)->val()->data()[0] << std::endl;
 #ifdef COMPILE_CPU
-    return {NodeOp(
+    return { [=]() {
     auto b = this->child(0)->val();
     auto quant_mult_a = this->child(1)->val();
     auto quant_mult_b = this->child(2)->val();
 
+  #if defined(WASM)
+    float scale_a = *quant_mult_a->data();
+    float scale_b = *quant_mult_b->data();
+    int8PrepareBias((const int8_t *)b->data(), scale_a, 0.0 /*zero_point_a*/, scale_b, 0.0 /*zero_point_b*/, rows(b), cols(b), nullptr/*input_bias*/, val_->data());
+  #elif defined(USE_INTGEMM)
     float unquant_mult = (-1)*((127.0f / *quant_mult_a->data())*(127.0f / *quant_mult_b->data()))/(127.0f); //Minus one to invert add_ps later on
     intgemm::Int8Shift::PrepareBias((const int8_t *)b->data(), rows(b), cols(b), intgemm::callbacks::UnquantizeAndWrite(unquant_mult, val_->data()));
-    )};
+  #else
+    ABORT("PrepareBias should not be called on ARM");
+  #endif
+    }};
 #else
     return {NodeOp()};
 #endif
@@ -332,7 +419,7 @@ public:
 
   NodeOps forwardOps() override {
 #ifdef COMPILE_CPU
-    return {NodeOp(
+    return { [=]() {
           float aQuantMult = std::static_pointer_cast<PrepareANodeOp<vtype> >(child(0))->quantMult_;
           float bQuantMult;
           if (child(1)->type() == "intgemmSelectColumnsB") {
@@ -346,6 +433,12 @@ public:
           float unquant_mult = 1.0f/(aQuantMult*bQuantMult);
 
           unquant_mult = unquant_mult*scalar_;
+      #if defined(WASM)
+          ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+              "Int16::Multiply is not implemented for wasm.");
+          ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm8,
+              "Int8::Multiply is not implemented for wasm.");
+      #elif defined(USE_INTGEMM)
           typedef typename intgemm_<vtype>::type Integer;
           intgemm_<vtype>::width::Multiply(reinterpret_cast<Integer *>(child(0)->val()->data()), /*A*/
                                            reinterpret_cast<Integer *>(child(1)->val()->data()), /*B*/
@@ -353,7 +446,8 @@ public:
                                            cols(child(0)->val()),
                                            cols(child(1)->val()),
                                            intgemm::callbacks::UnquantizeAndWrite(unquant_mult, val_->data()));
-    )};
+      #endif
+    }};
 #else
     return {NodeOp()};
 #endif
@@ -387,7 +481,7 @@ public:
 
   NodeOps forwardOps() override {
 #ifdef COMPILE_CPU
-    return {NodeOp(
+    return { [=]() {
           float aQuantMult = std::static_pointer_cast<PrepareANodeOp<vtype> >(child(0))->quantMult_;
           float bQuantMult;
           if (child(1)->type() == "intgemmSelectColumnsB") {
@@ -401,6 +495,24 @@ public:
           float unquant_mult = 1.0f/(aQuantMult*bQuantMult);
 
           unquant_mult = unquant_mult*scalar_;
+      #if defined(WASM)
+          ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+            "Int16::Multiply is not implemented for wasm.");
+          ABORT_IF(!shifted_, "Int8::Multiply is not implemented for wasm.");
+
+          int8MultiplyAndAddBias(reinterpret_cast<int8_t *>(child(0)->val()->data()), /*A*/
+                                aQuantMult, /*Scale of A*/
+                                0, /*zero point of A*/
+                                reinterpret_cast<int8_t *>(child(1)->val()->data()), /*B*/
+                                bQuantMult, /*Scale of B*/
+                                0, /*zero point of B*/
+                                child(2)->val()->data(), /*child(2) is bias*/
+                                scalar_,
+                                rows(child(0)->val()),
+                                cols(child(0)->val()),
+                                cols(child(1)->val()),
+                                val_->data());
+      #elif defined(USE_INTGEMM)
           typedef typename intgemm_<vtype>::type Integer;
           if (!shifted_) {
             intgemm_<vtype>::width::Multiply(reinterpret_cast<Integer *>(child(0)->val()->data()), /*A*/
@@ -417,7 +529,8 @@ public:
                                   cols(child(1)->val()),                                          /*child(2) is bias*/
                                   intgemm::callbacks::UnquantizeAndAddBiasAndWrite(unquant_mult, child(2)->val()->data(), val_->data()));
           }
-    )};
+      #endif
+    }};
 #else
     return {NodeOp()};
 #endif
@@ -442,8 +555,8 @@ static inline Expr prepareA(Expr a, Expr quantMult, float clipValue, bool shifte
 }
 
 template<Type vtype>
-static inline Expr prepareB(Expr b, Expr quantMult, float clipValue) {
-  return Expression<PrepareBNodeOp<vtype> >(b, quantMult, clipValue);
+static inline Expr prepareB(Expr b, Expr quantMult, float clipValue, bool transposed=false) {
+  return Expression<PrepareBNodeOp<vtype> >(b, quantMult, clipValue, transposed);
 }
 
 template<Type vtype>
@@ -451,49 +564,11 @@ static inline Expr selectColumnsB(Expr b, const std::vector<uint_least32_t> &col
   return Expression<SelectColumnsBNodeOp<vtype > >(b, cols, clipValue);
 }
 
-class fetchAlphaFromModelNodeOp : public UnaryNodeOp {
-public:
-  fetchAlphaFromModelNodeOp(Expr b)
-      : UnaryNodeOp(b, Shape({1}), Type::float32) {
-
-    std::string bname = b->name();
-    std::string aQuantKey = b->name() + "_QuantMultA";
-    //Very Hacky Bit. Unnamed matrix is notpart of the F0 parameter namespace
-    if (aQuantKey.at(0) != 'F') {
-      aQuantKey = "F0::" + aQuantKey;
-    }
-    set_name(aQuantKey);
-  }
-
-  NodeOps forwardOps() override {
-    return {NodeOp(
-      auto map = child(0)->graph()->params()->getMap();
-      const auto mapiter = map.find(name());
-      if (mapiter != map.end()) {
-        val_ = mapiter->second->val();
-      } else {
-        ABORT("We did not find an alpha in the model named: {}.", name());
-      }
-    )};
-  }
-
-  bool equal(Expr node) override {
-    if(hash() == node->hash()) return true;
-    return false;
-  }
-
-  size_t hash() override {
-    return std::hash<std::string>{}(name());
-  }
-
-  const std::string type() override { return "alphaNodeOp"; }
-};
-
 template<Type vtype>
 static inline Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale, float /* clipValue currently unused */ = 0.0f, bool shiftedBias=false) {
   Type bElementType = b->value_type();
   Expr aQuantMult = nullptr;
-  static bool precomputedAlphas = b->graph()->getBackend()->isPrecomputedAlpha();
+  bool precomputedAlphas = b->graph()->getBackend()->isPrecomputedAlpha();
   if (precomputedAlphas) { //Shifting here maybe should check?
     aQuantMult = Expression<fetchAlphaFromModelNodeOp>(b);
   } else {
@@ -504,11 +579,9 @@ static inline Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, f
   Expr bQuant = nullptr;
   if (isIntgemm(bElementType)) {
     //This is the case where we already run SelectColumnB or we loaded a prepacked model.
-    //We ignore a transpose argument here, because we do not support it.
-    ABORT_IF(transB, "Transpose on prepareB not currently supported");
     bQuant = b;
   } else {
-    bQuant = prepareB<vtype>(transB ? transpose(b) : b, bQuantMult, scale);
+    bQuant = prepareB<vtype>(b, bQuantMult, scale, transB);
   }
   if (bias && precomputedAlphas && bias->name() == "none") {
     // This is the case of the preprocessed bias. It's hacky but otherwise node caching is broken.

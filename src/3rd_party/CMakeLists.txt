@@ -5,17 +5,31 @@ add_subdirectory(./yaml-cpp)
 if(NOT USE_WASM_COMPATIBLE_SOURCE)
   add_subdirectory(./SQLiteCpp)
   add_subdirectory(./zlib)
+
   add_subdirectory(./faiss)
   include_directories(./faiss)
 endif()
+
 add_subdirectory(./pathie-cpp)
 
-set(INTGEMM_DONT_BUILD_TESTS ON CACHE BOOL "Disable intgemm tests")
-add_subdirectory(./intgemm)
+if(USE_INTGEMM)
+  set(INTGEMM_DONT_BUILD_TESTS ON CACHE BOOL "Disable intgemm tests")
+  add_subdirectory(./intgemm)
+endif(USE_INTGEMM)
 
-if(USE_WASM_COMPATIBLE_BLAS)
+if(USE_RUY)
+  set(CPUINFO_BUILD_MOCK_TESTS OFF CACHE BOOL " " FORCE)
+  set(CPUINFO_BUILD_BENCHMARKS OFF CACHE BOOL " " FORCE)
+  set(CPUINFO_BUILD_PKG_CONFIG OFF CACHE BOOL " " FORCE)
+  set(CPUINFO_BUILD_UNIT_TESTS OFF CACHE BOOL " " FORCE)
+  set(CPUINFO_BUILD_TOOLS      OFF CACHE BOOL " " FORCE)
+  add_subdirectory(ruy/third_party/cpuinfo EXCLUDE_FROM_ALL)
+  add_subdirectory(ruy EXCLUDE_FROM_ALL)
+endif(USE_RUY)
+
+if(USE_ONNX_SGEMM)
   add_subdirectory(./onnxjs)
-endif(USE_WASM_COMPATIBLE_BLAS)
+endif(USE_ONNX_SGEMM)
 
 if(USE_FBGEMM)
   # @TODO: find out if this is somehow harmful. This is supppressing CMake warnings for CMAKE_SUPPRESS_DEVELOPER_WARNINGS
@@ -84,19 +98,24 @@ if(USE_SENTENCEPIECE)
 
   add_subdirectory(./sentencepiece)
   include_directories(./sentencepiece)
+  if (NOT USE_WASM_COMPATIBLE_SOURCE)
   set_target_properties(spm_encode spm_decode spm_train spm_normalize spm_export_vocab
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+  endif()
+
+  list(APPEND SENTENCEPIECE_TARGETS sentencepiece-static sentencepiece_train-static)
+  if (NOT USE_WASM_COMPATIBLE_SOURCE)
+    list(APPEND SENTENCEPIECE_TARGETS spm_decode spm_encode spm_export_vocab spm_normalize spm_train)
+  endif()
 
   if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND (CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL 8.0 OR CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0))
-    foreach(t sentencepiece-static sentencepiece_train-static
-        spm_decode spm_encode spm_export_vocab spm_normalize spm_train)
+    foreach(t IN LISTS SENTENCEPIECE_TARGETS)
         set_property(TARGET ${t} APPEND_STRING PROPERTY COMPILE_FLAGS " -Wno-class-memaccess")
     endforeach(t)
   endif()
 
   if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    foreach(t sentencepiece-static sentencepiece_train-static
-        spm_decode spm_encode spm_export_vocab spm_normalize spm_train)
+    foreach(t IN LISTS SENTENCEPIECE_TARGETS)
       set_property(TARGET ${t} APPEND_STRING PROPERTY COMPILE_FLAGS " -Wno-tautological-compare -Wno-unused")
       if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0)
         set_property(TARGET ${t} APPEND_STRING PROPERTY COMPILE_FLAGS " -Wno-range-loop-construct")
@@ -154,34 +173,43 @@ if(CUDA_FOUND)
     # disables compilation for sm_30 to avoid ptxas warning... that is general Kepler support. But K80s are supported for instance by sm_35
 
     set(GENCODE "")
-    if(COMPILE_CUDA_SM35)
+    if(CUDA_VERSION VERSION_EQUAL "11.0" OR CUDA_VERSION VERSION_GREATER "11.0")
+      set(GENCODE "${GENCODE} -Wno-deprecated-gpu-targets")
+    endif()
+    if(COMPILE_KEPLER)
       set(GENCODE "${GENCODE} -gencode=arch=compute_35,code=sm_35")
-    endif(COMPILE_CUDA_SM35)
-    if(COMPILE_CUDA_SM50)
+    endif(COMPILE_KEPLER)
+    if(COMPILE_MAXWELL)
       set(GENCODE "${GENCODE} -gencode=arch=compute_50,code=sm_50")
-    endif(COMPILE_CUDA_SM50)
-    if(COMPILE_CUDA_SM60)
+    endif(COMPILE_MAXWELL)
+    if(COMPILE_PASCAL)
       set(GENCODE "${GENCODE} -gencode=arch=compute_60,code=sm_60 -gencode=arch=compute_61,code=sm_61")
-    endif(COMPILE_CUDA_SM60)
-    if(COMPILE_CUDA_SM70)
-      set(GENCODE "${GENCODE} -gencode=arch=compute_70,code=sm_70")
-    endif(COMPILE_CUDA_SM70)
-    if(COMPILE_CUDA_SM75)
+    endif(COMPILE_PASCAL)
+    if(COMPILE_VOLTA)
+      set(GENCODE "${GENCODE} -arch=sm_70 -gencode=arch=compute_70,code=sm_70")
+    endif(COMPILE_VOLTA)
+    if(COMPILE_TURING)
       set(GENCODE "${GENCODE} -gencode=arch=compute_75,code=sm_75; -gencode=arch=compute_75,code=compute_75")
-    endif(COMPILE_CUDA_SM75)
-    if(COMPILE_CUDA_SM80)
+    endif(COMPILE_TURING)
+    if(COMPILE_AMPERE)
       set(GENCODE "${GENCODE} -gencode=arch=compute_80,code=sm_80; -gencode=arch=compute_80,code=compute_80")
-    endif(COMPILE_CUDA_SM80)
+    endif(COMPILE_AMPERE)
 
     # install nccl in ${CMAKE_BINARY_DIR}/local similar to /usr/local linux installation
+    # Using $(MAKE) instead of $CMAKE_MAKE_PROGRAM in order to make parallelization in NCCL compilation work with make -j16.
+    # Apparently this does not get properly propagated otherwise and builts with only a single thread/process.
     ExternalProject_Add(nccl_install
       SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nccl
       BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nccl
       CONFIGURE_COMMAND ""
       BUILD_COMMAND
-        ${CMAKE_MAKE_PROGRAM} -f ${CMAKE_CURRENT_SOURCE_DIR}/nccl/Makefile src.build
+        # Note: $(MAKE) here causes CMake cache generation via Ninja failing (Windows build with
+        # CMake only) because Ninja complains about unescaped $ signs. This happens only if
+        # COMPILE_CUDA=on and because of that, USE_NCCL=off is used in CMakeSettings.json for now.
+        # @TODO: find proper escaping that works for MSVC builds.
+        "\$(MAKE)" -f ${CMAKE_CURRENT_SOURCE_DIR}/nccl/Makefile src.build
         BUILDDIR=${CMAKE_BINARY_DIR}/local CUDA_HOME=${CUDA_TOOLKIT_ROOT_DIR}
-        CUDA8_GENCODE=${GENCODE} CXX=${CMAKE_CXX_COMPILER}
+        CUDA8_GENCODE=${GENCODE} CXX=${CMAKE_CXX_COMPILER} CXX_FLAGS=${NCCL_FLAGS}
       INSTALL_COMMAND "")
 
     set_target_properties(nccl PROPERTIES IMPORTED_LOCATION ${CMAKE_BINARY_DIR}/local/lib/libnccl_static.a)

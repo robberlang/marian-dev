@@ -22,8 +22,9 @@ fi
 echo "Packaging files for wasm binary"
 $EMSDK_PYTHON $EMSDK/upstream/emscripten/tools/file_packager.py model-files.data --preload ../models/@ --js-output=model-files.js
 
-echo "Enabling wormhole via APIs that compile and instantiate wasm module"
-sed -i.bak 's/var result = WebAssembly.instantiateStreaming(response, info);/var result = WebAssembly.instantiateStreaming(response, info, {simdWormhole:true});/g' marian-decoder.js
-sed -i.bak 's/return WebAssembly.instantiate(binary, info);/return WebAssembly.instantiate(binary, info, {simdWormhole:true});/g' marian-decoder.js
-sed -i.bak 's/var module = new WebAssembly.Module(bytes);/var module = new WebAssembly.Module(bytes, {simdWormhole:true});/g' marian-decoder.js
+echo "Importing integer (8-bit) gemm implementation"
+SCRIPT_ABSOLUTE_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+sed -i.bak 's/"env"[[:space:]]*:[[:space:]]*asmLibraryArg,/"env": asmLibraryArg,\
+    "wasm_gemm": createWasmGemm(),/g' marian-decoder.js
+cat $SCRIPT_ABSOLUTE_PATH/import-gemm-module.js >> marian-decoder.js
 echo "SUCCESS"

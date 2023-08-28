@@ -16,9 +16,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(CMakeDependentOption)
 
+# Architecture detection
+include(TargetArch)
+
+target_architecture(CMAKE_TARGET_ARCHITECTURES)
+list(LENGTH CMAKE_TARGET_ARCHITECTURES cmake_target_arch_len)
+if(NOT "${cmake_target_arch_len}" STREQUAL "1")
+    set(CMAKE_TARGET_ARCHITECTURE_UNIVERSAL TRUE)
+    set(CMAKE_TARGET_ARCHITECTURE_CODE "universal")
+else()
+    set(CMAKE_TARGET_ARCHITECTURE_UNIVERSAL FALSE)
+    set(CMAKE_TARGET_ARCHITECTURE_CODE "${CMAKE_TARGET_ARCHITECTURES}")
+endif()
+
 # Custom CMake options
 option(COMPILE_CPU "Compile CPU version" ON)
-option(COMPILE_CUDA "Compile GPU version" ON)
+option(COMPILE_CUDA "Compile GPU version" OFF)
 option(COMPILE_EXAMPLES "Compile examples" OFF)
 option(COMPILE_SERVER "Compile marian-server" OFF)
 option(COMPILE_TESTS "Compile tests" OFF)
@@ -31,25 +44,67 @@ option(USE_CCACHE "Use ccache compiler cache (https://ccache.dev)" OFF)
 option(USE_CUDNN "Use CUDNN library" OFF)
 option(USE_DOXYGEN "Build documentation with Doxygen" ON)
 option(USE_FBGEMM "Use FBGEMM" OFF)
+option(USE_INTGEMM "Use INTGEMM" OFF)
 option(USE_MKL "Compile with MKL support" ON)
 option(USE_MPI "Use MPI library" OFF)
 option(USE_NCCL "Use NCCL library" ON)
 option(USE_SENTENCEPIECE "Download and compile SentencePiece" ON)
 option(USE_STATIC_LIBS "Link statically against non-system libs" OFF)
 option(GENERATE_MARIAN_INSTALL_TARGETS "Generate Marian install targets (requires CMake 3.12+)" OFF)
-option(M32_BINARIES "Generate 32bit binaries even when building outside of WASM. Useful for testing some WASM specific functionality without the need for the compiling to WASM." OFF)
 option(COMPILE_WASM "Compile (wasm compatible) marian for WASM target" OFF)
 option(USE_WASM_COMPATIBLE_SOURCE "Enable the minimal marian sources that compile to wasm. Useful for debugging wasm failures by building same sources natively" OFF)
+
+option(USE_SIMD_UTILS "Enable simde to target instruction sets" OFF)
+option(COMPILE_WITHOUT_EXCEPTIONS "Compile without exceptions" OFF)
 
 # cmake options that are dependent on USE_WASM_COMPATIBLE_SOURCE cmake option
 CMAKE_DEPENDENT_OPTION(USE_THREADS "Compile with multi-threading support" OFF
                        "USE_WASM_COMPATIBLE_SOURCE" ON)
-CMAKE_DEPENDENT_OPTION(USE_WASM_COMPATIBLE_BLAS "Compile with wasm compatible blas" ON
+CMAKE_DEPENDENT_OPTION(USE_ONNX_SGEMM "Compile with wasm compatible blas" ON
                        "USE_WASM_COMPATIBLE_SOURCE" OFF)
 CMAKE_DEPENDENT_OPTION(COMPILE_WITHOUT_EXCEPTIONS "Compile without exceptions" ON
                        "USE_WASM_COMPATIBLE_SOURCE" OFF)
 
+if(${CMAKE_TARGET_ARCHITECTURE_CODE} MATCHES "arm")
+  option(USE_RUY "Use Ruy" ON)
+
+  # Apple M1 has Apple Accelerate. Otherwise fallback to RUY
+  if(APPLE)
+    option(USE_RUY_SGEMM "Compile with Ruy SGEMM" OFF)
+  else(APPLE)
+    option(USE_RUY_SGEMM "Compile with Ruy SGEMM" ON)
+  endif(APPLE)
+
+  set(USE_SIMD_UTILS ON)
+
+  # Some warnings as errors. I don't feel comfortable about the strict aliasing.
+  set(ARM_WARNINGS "-fno-strict-aliasing -Wno-comment")
+
+  # Define that we are using ARM
+  add_compile_definitions(ARM)
+  #
+else()
+  set(USE_INTGEMM ON)
+endif()
+
+if(USE_INTGEMM)
+  add_compile_definitions(USE_INTGEMM=1)
+endif(USE_INTGEMM)
+
+if(USE_SIMD_UTILS)
+  if(${CMAKE_TARGET_ARCHITECTURE_CODE} MATCHES "arm")
+    add_compile_definitions(ARM FMA SSE) #added for ARM
+  endif()
+  if(MSVC)
+    add_compile_options(/flax-vector-conversions)
+  else(MSVC)
+    add_compile_options(-flax-vector-conversions)
+  endif(MSVC)
+endif(USE_SIMD_UTILS)
+
+
 if (USE_WASM_COMPATIBLE_SOURCE)
+  set(SPM_BUILD_LIBRARY_ONLY ON CACHE BOOL "Build only sentencepiece library (skip building executables)")
   add_compile_definitions(WASM_COMPATIBLE_SOURCE)
   # Setting USE_SSE2 definition to enable SSE2 specific code in "3rd_party/sse_mathfun.h" for wasm builds
   add_compile_definitions(USE_SSE2)
@@ -57,19 +112,41 @@ endif()
 
 if (COMPILE_WASM)
   add_compile_definitions(WASM)
-  set(WORMHOLE ON CACHE BOOL "Use WASM wormhole in intgemm https://bugzilla.mozilla.org/show_bug.cgi?id=1672160")
 endif()
 
-if(M32_BINARIES OR COMPILE_WASM)
+
+if(COMPILE_WASM)
     set("BUILD_WIDTH" "-m32")
-else(M32_BINARIES OR COMPILE_WASM)
-    set("BUILD_WIDTH" "-m64")
+else(COMPILE_WASM)
+    set("BUILD_WIDTH" "")
 endif()
 
 if(NOT COMPILE_WASM)
   # Setting BUILD_ARCH to native invokes CPU intrinsic detection logic below.
   # Prevent invoking that logic for WASM builds.
   set(BUILD_ARCH native CACHE STRING "Compile for this CPU architecture.")
+
+  # Unfortunately MSVC supports a limited subset of BUILD_ARCH flags. Instead try to guess
+  # what architecture we can compile to reading BUILD_ARCH and mapping it to MSVC values
+  # references: https://clang.llvm.org/docs/UsersManual.html https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html https://gcc.gnu.org/onlinedocs/gcc-4.8.5/gcc/i386-and-x86-64-Options.html
+  # https://docs.microsoft.com/en-us/cpp/build/reference/arch-x86?redirectedfrom=MSDN&amp;amp;view=vs-2019&view=msvc-170 https://devblogs.microsoft.com/oldnewthing/20201026-00/?p=104397
+  # This is by no means an exhaustive list but should match the most common flags Linux programmers expect to parse to MSVC
+  if(MSVC)
+    if(BUILD_ARCH STREQUAL "native") # avx2 is good default for native. Very few desktop systems support avx512
+      set(MSVC_BUILD_ARCH "/arch:AVX2")
+    elseif(BUILD_ARCH STREQUAL "skylake-avx512" OR BUILD_ARCH STREQUAL "cannonlake" OR BUILD_ARCH STREQUAL "x86-64-v4" OR BUILD_ARCH STREQUAL "tigerlake" OR BUILD_ARCH STREQUAL "cooperlake" OR BUILD_ARCH STREQUAL "cascadelake")
+      set(MSVC_BUILD_ARCH "/arch:AVX512")
+    elseif(BUILD_ARCH STREQUAL "core-avx2" OR BUILD_ARCH STREQUAL "haswell" OR BUILD_ARCH STREQUAL "x86-64-v3" OR BUILD_ARCH STREQUAL "broadwell" OR BUILD_ARCH STREQUAL "skylake")
+      set(MSVC_BUILD_ARCH "/arch:AVX2")
+    elseif(BUILD_ARCH STREQUAL "sandybridge" OR BUILD_ARCH STREQUAL "corei7-avx" OR BUILD_ARCH STREQUAL "core-avx-i" OR BUILD_ARCH STREQUAL "ivybridge")
+      set(MSVC_BUILD_ARCH "/arch:AVX")
+    elseif(BUILD_ARCH STREQUAL "nehalem" OR BUILD_ARCH STREQUAL "westmere" OR BUILD_ARCH STREQUAL "x86-64-v2" OR BUILD_ARCH STREQUAL "corei7" OR BUILD_ARCH STREQUAL "core2")
+      set(MSVC_BUILD_ARCH "/arch:SSE2") # This is MSVC default. We won't go down to SSE because we don't support that hardware at all with intgemm. Marian recommends to only go down to SSE4.1 at most
+    else()
+      message(WARNING "Unknown BUILD_ARCH ${BUILD_ARCH} provided. Default to SSE2 for Windows build")
+      set(MSVC_BUILD_ARCH "/arch:SSE2")
+    endif()
+  endif(MSVC)
 endif()
 
 if(USE_THREADS)
@@ -145,7 +222,7 @@ if(MSVC)
   add_definitions(-DUSE_SSE2=1)
 
   # Or maybe use these?
-  set(INTRINSICS "/arch:AVX2")
+  set(INTRINSICS ${MSVC_BUILD_ARCH})
   # set(INTRINSICS "/arch:AVX512")
 
   set(CMAKE_CXX_FLAGS                  "/EHsc /DWIN32 /D_WINDOWS /DUNICODE /D_UNICODE /D_CRT_NONSTDC_NO_WARNINGS /D_CRT_SECURE_NO_WARNINGS ${DISABLE_GLOBALLY}")
@@ -171,7 +248,6 @@ if(MSVC)
     add_definitions(-DUSE_FBGEMM=1 -DFBGEMM_STATIC=1)
   endif(USE_FBGEMM)
 else(MSVC)
-
   # Check we are using at least g++ 5.0
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0)
     message(FATAL_ERROR "FATAL ERROR: Compiling Marian requires at least g++ 5.0, your version is ${CMAKE_CXX_COMPILER_VERSION}")
@@ -226,12 +302,14 @@ else(MSVC)
     # -msse4.1 once marian can solely be compiled with intgemm ("onnxjs" will be removed in that case)
     set(INTRINSICS "-mssse3 -msimd128")
   else()
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL amd64)
     set(INTRINSICS "-msse4.1")
+  endif()
   endif()
 
   if(USE_FBGEMM)
     set(EXT_LIBS ${EXT_LIBS} fbgemm dl)
-    add_definitions(-DUSE_FBGEMM=1)
+    add_compile_definitions(USE_FBGEMM=1)
   endif(USE_FBGEMM)
 
   if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0)
@@ -240,13 +318,13 @@ else(MSVC)
     set(CLANG_IGNORE_UNUSED_VALUES "-Wno-unused-value")
     set(CLANG_IGNORE_UNUSED_PRIVATE_FIELD -Wno-unused-private-field;) # This is necessary for the APPLE clang compiler to appear after -Werror
   endif()
-  set(DISABLE_GLOBALLY "-Wno-unused-result ${CLANG_IGNORE_UNKNOWN_CUDA} ${CLANG_IGNORE_UNUSED_VALUES}") # This needs to appear here as well to appease clang11+ on linux
+  set(DISABLE_GLOBALLY "-Wno-unused-result ${CLANG_IGNORE_UNKNOWN_CUDA} ${CLANG_IGNORE_UNUSED_VALUES} ${ARM_WARNINGS}") # This needs to appear here as well to appease clang11+ on linux
 
   # These are used in src/CMakeLists.txt on a per-target basis
   list(APPEND ALL_WARNINGS -Wall; -Werror; -Wextra; -Wno-unused-result; -Wno-deprecated;
     -Wno-pragmas; -Wno-unused-parameter; -Wno-unused-function;
     -Wno-unused-value; -Wno-unknown-pragmas; -Wno-sign-compare;
-    -Wno-missing-field-initializers; ${CLANG_IGNORE_UNUSED_PRIVATE_FIELD})
+    -Wno-missing-field-initializers; -Wno-use-after-free; -Wno-restrict; ${CLANG_IGNORE_UNUSED_PRIVATE_FIELD})
 
   # This warning does not exist prior to gcc 5.0
   if(CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 5.0)
@@ -260,17 +338,23 @@ else(MSVC)
   endif(CMAKE_COMPILER_IS_GNUCC)
 
   if(COMPILE_WASM)
+    if(USE_THREADS)
     set(PTHREAD_FLAG "-pthread")
     set(DISABLE_PTHREAD_MEMGROWTH_WARNING -Wno-error=pthreads-mem-growth)
+    endif(USE_THREADS)
     set(CMAKE_CXX_FLAGS                 "-std=c++14 ${PTHREAD_FLAG} ${CMAKE_GCC_FLAGS} -fPIC ${DISABLE_GLOBALLY} ${INTRINSICS}")
-    set(CMAKE_CXX_FLAGS_RELEASE         "-O3 -s WASM=1 -s ASSERTIONS=0 -s DISABLE_EXCEPTION_CATCHING=1 -s LLD_REPORT_UNDEFINED -s FORCE_FILESYSTEM=1 -s ALLOW_MEMORY_GROWTH=1 -g2 ${DISABLE_PTHREAD_MEMGROWTH_WARNING} -funroll-loops")
+    set(CMAKE_CXX_FLAGS_RELEASE         "-O3 -flto -funroll-loops -s DISABLE_EXCEPTION_CATCHING=1 ${DISABLE_PTHREAD_MEMGROWTH_WARNING}")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO  "${CMAKE_CXX_FLAGS_RELEASE} -g2 ${CMAKE_RDYNAMIC_FLAG}")
     # Disabling Pthreads + memory growth warning to be an error
     # Pthreads + memory growth causes JS accessing the wasm memory to be slow
     # https://github.com/WebAssembly/design/issues/1271
     list(APPEND ALL_WARNINGS ${DISABLE_PTHREAD_MEMGROWTH_WARNING})
 
     # use our customizations to the generated emscripted html and js resources
-    set(MARIAN_DECODER_EMSCRIPTEN_LINK_FLAGS "--pre-js ${CMAKE_SOURCE_DIR}/wasm/pre-module.js \
+    set(MARIAN_DECODER_EMSCRIPTEN_LINK_FLAGS "-s WASM=1 -s ASSERTIONS=0 -s DISABLE_EXCEPTION_CATCHING=1 -s LLD_REPORT_UNDEFINED -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s FORCE_FILESYSTEM=1 \
+                                              -s ALLOW_MEMORY_GROWTH=1 ${DISABLE_PTHREAD_MEMGROWTH_WARNING} -s DECLARE_ASM_MODULE_EXPORTS=0 \
+                                              -s EXPORTED_FUNCTIONS=[_main,_int8PrepareAFallback,_int8PrepareBFallback,_int8PrepareBFromTransposedFallback,_int8PrepareBFromQuantizedTransposedFallback,_int8PrepareBiasFallback,_int8MultiplyAndAddBiasFallback,_int8SelectColumnsOfBFallback] \
+                                              --pre-js ${CMAKE_SOURCE_DIR}/wasm/pre-module.js \
                                               --post-js ${CMAKE_SOURCE_DIR}/wasm/post-module.js \
                                               --shell-file ${CMAKE_SOURCE_DIR}/wasm/custom_shell.html")
   else(COMPILE_WASM)
@@ -294,6 +378,7 @@ else(MSVC)
     set(CMAKE_C_FLAGS_PROFUSE         "${CMAKE_C_FLAGS_RELWITHDEBINFO} -fprofile-use -fprofile-correction")
   endif(COMPILE_WASM)
 endif(MSVC)
+
 
 # with gcc 7.0 and above we need to mark fallthrough in switch case statements
 # that can be done in comments for backcompat, but CCACHE removes comments.
@@ -350,48 +435,71 @@ if(CUDA_FOUND)
   # We want to compile as many targets as possible but different CUDA versions support different targets.
   # Let's instead enable options based on what cuda version we have.
   if((CUDA_VERSION VERSION_EQUAL "9.0" OR CUDA_VERSION VERSION_GREATER "9.0") AND CUDA_VERSION VERSION_LESS "11.0")
-    option(COMPILE_CUDA_SM35 "Compile GPU version with SM35 support" ON)
-    option(COMPILE_CUDA_SM50 "Compile GPU version with SM50 support" ON)
-    option(COMPILE_CUDA_SM60 "Compile GPU version with SM60 support" ON)
-    option(COMPILE_CUDA_SM70 "Compile GPU version with SM70 support" ON)
+    option(COMPILE_KEPLER  "Compile GPU version with SM35 support" OFF)
+    option(COMPILE_MAXWELL "Compile GPU version with SM50 support" OFF)
+    option(COMPILE_PASCAL  "Compile GPU version with SM60 support" ON)
+    option(COMPILE_VOLTA   "Compile GPU version with SM70 support" ON)
   endif()
   if((CUDA_VERSION VERSION_EQUAL "10.0" OR CUDA_VERSION VERSION_GREATER "10.0") AND CUDA_VERSION VERSION_LESS "11.0")
-    option(COMPILE_CUDA_SM35 "Compile GPU version with SM35 support" ON)
-    option(COMPILE_CUDA_SM50 "Compile GPU version with SM50 support" ON)
-    option(COMPILE_CUDA_SM60 "Compile GPU version with SM60 support" ON)
-    option(COMPILE_CUDA_SM70 "Compile GPU version with SM70 support" ON)
-    option(COMPILE_CUDA_SM75 "Compile GPU version with SM75 support" ON)
+    option(COMPILE_KEPLER  "Compile GPU version with SM35 support" OFF)
+    option(COMPILE_MAXWELL "Compile GPU version with SM50 support" OFF)
+    option(COMPILE_PASCAL  "Compile GPU version with SM60 support" ON)
+    option(COMPILE_VOLTA   "Compile GPU version with SM70 support" ON)
+    option(COMPILE_TURING  "Compile GPU version with SM75 support" ON)
   endif()
   if(CUDA_VERSION VERSION_EQUAL "11.0" OR CUDA_VERSION VERSION_GREATER "11.0")
-    option(COMPILE_CUDA_SM35 "Compile GPU version with SM35 support" ON)
-    option(COMPILE_CUDA_SM50 "Compile GPU version with SM50 support" ON)
-    option(COMPILE_CUDA_SM60 "Compile GPU version with SM60 support" ON)
-    option(COMPILE_CUDA_SM70 "Compile GPU version with SM70 support" ON)
-    option(COMPILE_CUDA_SM75 "Compile GPU version with SM75 support" ON)
-    option(COMPILE_CUDA_SM80 "Compile GPU version with SM80 support" ON)
+    option(COMPILE_KEPLER  "Compile GPU version with SM35 support" OFF) # deprecated for CUDA 11
+    option(COMPILE_MAXWELL "Compile GPU version with SM50 support" OFF) # deprecated for CUDA 11
+    option(COMPILE_PASCAL  "Compile GPU version with SM60 support" ON)
+    option(COMPILE_VOLTA   "Compile GPU version with SM70 support" ON)
+    option(COMPILE_TURING  "Compile GPU version with SM75 support" ON)
+    option(COMPILE_AMPERE  "Compile GPU version with SM80 support" ON)
+    LIST(APPEND COMPUTE -Wno-deprecated-gpu-targets)
+  endif()
+  if(CUDA_VERSION VERSION_EQUAL "11.1" OR CUDA_VERSION VERSION_GREATER "11.1")
+    option(COMPILE_KEPLER      "Compile GPU version with SM35 support" OFF) # deprecated for CUDA 11
+    option(COMPILE_MAXWELL     "Compile GPU version with SM50 support" OFF) # deprecated for CUDA 11
+    option(COMPILE_PASCAL      "Compile GPU version with SM60 support" ON)
+    option(COMPILE_VOLTA       "Compile GPU version with SM70 support" ON)
+    option(COMPILE_TURING      "Compile GPU version with SM75 support" ON)
+    option(COMPILE_AMPERE      "Compile GPU version with SM80 support" ON)
+    option(COMPILE_AMPERE_RTX  "Compile GPU version with SM86 support" ON)
+    LIST(APPEND COMPUTE -Wno-deprecated-gpu-targets)
   endif()
 
-  if(COMPILE_CUDA_SM35)
-    LIST(APPEND COMPUTE -arch=sm_35; -gencode=arch=compute_35,code=sm_35;)                             # Tesla K40 and above
-  endif(COMPILE_CUDA_SM35)
-  if(COMPILE_CUDA_SM50)
+  if(COMPILE_KEPLER)
+    message(STATUS "Compiling code for Kepler GPUs")
+    LIST(APPEND COMPUTE -gencode=arch=compute_35,code=sm_35;) # Tesla K40 and above
+  endif(COMPILE_KEPLER)
+  if(COMPILE_MAXWELL)
+    message(STATUS "Compiling code for Maxwell GPUs")
     LIST(APPEND COMPUTE -gencode=arch=compute_50,code=sm_50; -gencode=arch=compute_52,code=sm_52;)     # Maxwell GPUs
-  endif(COMPILE_CUDA_SM50)
-  if(COMPILE_CUDA_SM60)
+  endif(COMPILE_MAXWELL)
+  if(COMPILE_PASCAL)
+    message(STATUS "Compiling code for Pascal GPUs")
     LIST(APPEND COMPUTE -gencode=arch=compute_60,code=sm_60; -gencode=arch=compute_61,code=sm_61;)     # Pascal GPUs
-  endif(COMPILE_CUDA_SM60)
-  if(COMPILE_CUDA_SM70)
-    LIST(APPEND COMPUTE -gencode=arch=compute_70,code=sm_70; -gencode=arch=compute_70,code=compute_70) # Volta GPUs
-  endif(COMPILE_CUDA_SM70)
+  endif(COMPILE_PASCAL)
+  if(COMPILE_VOLTA)
+    message(STATUS "Compiling code for Volta GPUs")
+    LIST(APPEND COMPUTE -arch=sm_70; -gencode=arch=compute_70,code=sm_70; -gencode=arch=compute_70,code=compute_70) # Volta GPUs
+  endif(COMPILE_VOLTA)
   if(CUDA_VERSION VERSION_EQUAL "10.0" OR CUDA_VERSION VERSION_GREATER "10.0")
-    if(COMPILE_CUDA_SM75)
+    if(COMPILE_TURING)
+        message(STATUS "Compiling code for Turing GPUs")
         LIST(APPEND COMPUTE -gencode=arch=compute_75,code=sm_75; -gencode=arch=compute_75,code=compute_75) # Turing GPUs
-    endif(COMPILE_CUDA_SM75)
+    endif(COMPILE_TURING)
   endif()
   if(CUDA_VERSION VERSION_EQUAL "11.0" OR CUDA_VERSION VERSION_GREATER "11.0")
-    if(COMPILE_CUDA_SM80)
+    if(COMPILE_AMPERE)
+        message(STATUS "Compiling code for Ampere GPUs")
         LIST(APPEND COMPUTE -gencode=arch=compute_80,code=sm_80; -gencode=arch=compute_80,code=compute_80) # Ampere GPUs
-    endif(COMPILE_CUDA_SM80)
+    endif(COMPILE_AMPERE)
+  endif()
+  if(CUDA_VERSION VERSION_EQUAL "11.1" OR CUDA_VERSION VERSION_GREATER "11.1")
+    if(COMPILE_AMPERE_RTX)
+        message(STATUS "Compiling code for Ampere RTX GPUs")
+        LIST(APPEND COMPUTE -gencode=arch=compute_86,code=sm_86; -gencode=arch=compute_86,code=compute_86) # Ampere RTX GPUs
+    endif(COMPILE_AMPERE_RTX)
   endif()
 
   if(USE_STATIC_LIBS)
@@ -515,16 +623,22 @@ endif(USE_MPI)
 ###############################################################################
 # Find BLAS library for CPU compilation
 if(COMPILE_CPU)
+  if(USE_INTGEMM)
   set(EXT_LIBS ${EXT_LIBS} intgemm)       # Move the intgemm bits on top since they compile with every single variant
+  endif(USE_INTGEMM)
+
+  if(USE_RUY OR USE_RUY_SGEMM)
+    set(EXT_LIBS ${EXT_LIBS} ruy) 
+  endif(USE_RUY OR USE_RUY_SGEMM)
+
   add_definitions(-DCOMPILE_CPU=1)        # Move the compile CPU definition on top since we want to compile intgemm when we set compile CPU
                                           # in case a BLAS vendor is not found, we have a runtime error, although we should probably not allow the compilation to go on
                                           # if there are BLAS vendors, we have other runtime checks with sane error messages.
-  if(USE_WASM_COMPATIBLE_BLAS)
+  if(USE_ONNX_SGEMM)
     ## Use a wasm compatible BLAS
+    ## ^ SGEMM != BLAS
     set(EXT_LIBS ${EXT_LIBS} onnx-sgemm)
-    set(BLAS_FOUND TRUE)
-    set(BLAS_VENDOR "ONNX-SGEMM")
-    add_definitions(-DBLAS_FOUND=1  -DWASM_COMPATIBLE_BLAS=1) # Might be required in some cmake files further down the line, let's avoid using add_compile_definitions in this codeblock
+    add_definitions(-DUSE_ONNX_SGEMM=1) # Might be required in some cmake files further down the line, let's avoid using add_compile_definitions in this codeblock
   elseif(APPLE AND USE_APPLE_ACCELERATE)
     set(BLAS_VENDOR "Accelerate")
     # see https://developer.apple.com/documentation/accelerate for more info
@@ -532,7 +646,9 @@ if(COMPILE_CPU)
     include_directories("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Accelerate.framework/Frameworks/vecLib.framework/Headers")
     set(EXT_LIBS ${EXT_LIBS} "-framework Accelerate")
     add_definitions(-DBLAS_FOUND=1)
-  else(USE_WASM_COMPATIBLE_BLAS)
+  elseif(USE_RUY_SGEMM)
+    add_compile_definitions(USE_RUY_SGEMM=1)
+  else(USE_ONNX_SGEMM)
     if(USE_MKL)
       find_package(MKL)
     endif(USE_MKL)
@@ -553,7 +669,8 @@ if(COMPILE_CPU)
         endif(CBLAS_FOUND)
       endif(BLAS_FOUND)
     endif(MKL_FOUND)
-  endif(USE_WASM_COMPATIBLE_BLAS)
+  endif(USE_ONNX_SGEMM)
+
 endif(COMPILE_CPU)
 
 ###############################################################################

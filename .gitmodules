@@ -20,7 +20,13 @@
 	url = https://github.com/kpu/intgemm
 [submodule "src/3rd_party/simple-websocket-server"]
 	path = src/3rd_party/simple-websocket-server
-	url = https://github.com/marian-nmt/Simple-WebSocket-Server.git
+	url = https://github.com/marian-nmt/Simple-WebSocket-Server
 [submodule "src/3rd_party/onnxjs"]
 	path = src/3rd_party/onnxjs
-	url = https://github.com/abhi-agg/onnxjs.git
+	url = https://github.com/browsermt/onnxjs
+[submodule "src/3rd_party/ruy"]
+	path = src/3rd_party/ruy
+	url = https://github.com/google/ruy
+[submodule "src/3rd_party/simd_utils"]
+	path = src/3rd_party/simd_utils
+	url = https://github.com/JishinMaster/simd_utils/

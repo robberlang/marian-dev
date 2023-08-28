@@ -4,12 +4,12 @@ on:
   push:
     branches: [ master ]
   pull_request:
-    branches: [ master ]
+    branches: [ "**" ]
 
 jobs:
   build-macos:
     name: MacOS CPU-only
-    runs-on: macos-10.15
+    runs-on: macos-latest
 
     steps:
     - name: Checkout
@@ -36,7 +36,7 @@ jobs:
           -DCOMPILE_CPU=on \
           -DCOMPILE_CUDA=off \
           -DCOMPILE_EXAMPLES=on \
-          -DCOMPILE_SERVER=on \
+          -DCOMPILE_SERVER=off \
           -DCOMPILE_TESTS=on \
           -DUSE_FBGEMM=on \
           -DUSE_SENTENCEPIECE=on \

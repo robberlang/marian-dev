@@ -39,7 +39,7 @@ private:
 public:
   typedef SentenceTuple Sample;
 
-  TextInput(const std::vector<std::string>& inputs,
+  TextInput(std::vector<std::string> inputs,
             std::vector<Ptr<Vocab>> vocabs,
             Ptr<Options> options);
   virtual ~TextInput() {}
