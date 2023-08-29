@@ -248,8 +248,8 @@ private:
       pool.enqueue(
           [=](size_t j) {
             models_[j] = New<Model>(options_);
-            if(mmaps_) {
-              models_[j]->mmap(graphs_[j], mmaps_->front().data());
+            if(model_mmaps_) {
+              models_[j]->mmap(graphs_[j], model_mmaps_->front().data());
             } else {
               models_[j]->load(graphs_[j], models.front());
             }
