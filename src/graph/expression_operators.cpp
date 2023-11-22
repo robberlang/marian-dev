@@ -484,17 +484,32 @@ Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
         return cpu::integer::affineOrDotRUI(a, b, nullptr, transA, transB, clipValue);
       }
 #else
-      if(a->graph()->getBackend()->isInt8() || matchType<intgemm8>(bElementType)) {
-        bool shiftedAll = a->graph()->getBackend()->isShiftedAll(); //@TODO
-        return cpu::integer::dot<Type::int8>(
+      bool shiftedAll = a->graph()->getBackend()->isShiftedAll();  //@TODO
+      if(isIntgemm(bElementType) && sizeOf(bElementType) == 1) {
+        return cpu::integer::dot(
           a,
           b,
           transA,
           transB,
           scale,
           shiftedAll);
-      } else if(a->graph()->getBackend()->isInt16() || matchType<intgemm16>(bElementType)) {
-        return cpu::integer::dot<Type::int16>(
+      } else if(a->graph()->getBackend()->isInt8()) {
+        return cpu::integer::dot<Type::intgemm8>(
+          a,
+          b,
+          transA,
+          transB,
+          scale,
+          shiftedAll);
+      } else if(isIntgemm(bElementType) && sizeOf(bElementType) == 2) {
+        return cpu::integer::dot(
+          a,
+          b,
+          transA,
+          transB,
+          scale);
+      } else if(a->graph()->getBackend()->isInt16()) {
+        return cpu::integer::dot<Type::intgemm16>(
           a,
           b,
           transA,
@@ -576,7 +591,7 @@ Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
 #else
       if(a->graph()->getBackend()->isInt8()  || matchType<intgemm8>(bElementType) ) {
         bool shiftedBias = a->graph()->getBackend()->isShifted();
-        return cpu::integer::affine<Type::int8>(
+        return cpu::integer::affine<Type::intgemm8>(
           a,
           b,
           bias,
@@ -586,7 +601,7 @@ Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
           clipValue,
           shiftedBias);
       } else if(a->graph()->getBackend()->isInt16()  || matchType<intgemm16>(bElementType) ) {
-        return cpu::integer::affine<Type::int16>(
+        return cpu::integer::affine<Type::intgemm16>(
           a,
           b,
           bias,

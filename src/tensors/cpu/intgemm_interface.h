@@ -30,7 +30,7 @@ bool shifted_;
     return { [=]() {
       quantMult_ = *child(1)->val()->data();
   #if defined(WASM)
-      ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+      ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 2,
         "Int16::PrepareA is not implemented for wasm.");
       ABORT_IF(!shifted_, "Int8::PrepareA is not implemented for wasm. Please use shifted version.");
       int8PrepareA(child(0)->val()->data(), // input
@@ -78,7 +78,7 @@ bool transposed_; /*This is only used for the output layer which has a different
                    *all other matrices in the code. By default we shouldn't do an extra transpose.*/
 
   PrepareBNodeOp(Expr input, Expr quant_mult, float clipValue, bool transposed=false)
-      : NaryNodeOp({input, quant_mult}, newShape(input, transposed), intgemm_<vtype>::intgemmType), clipValue_(clipValue), transposed_(transposed) {
+      : NaryNodeOp({input, quant_mult}, newShape(input, transposed), vtype), clipValue_(clipValue), transposed_(transposed) {
 
     set_name(input->name());
     // Check if arguments are not null
@@ -99,7 +99,7 @@ bool transposed_; /*This is only used for the output layer which has a different
         val_ = child(0)->val();
       } else {
 #if defined(WASM)
-        ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+        ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 2,
                 "Int16::PrepareB is not implemented for wasm.");
         if (!transposed_) {
           int8PrepareB(child(0)->val()->data(), //input
@@ -165,7 +165,7 @@ public:
   float clipValue_;
   float quantMult_;
   SelectColumnsBNodeOp(Expr input, const std::vector<uint_least32_t>  &indices, float clipValue)
-      : UnaryNodeOp(input, newShape(input, indices), intgemm_<vtype>::intgemmType), clipValue_(clipValue), indices_(indices) {
+      : UnaryNodeOp(input, newShape(input, indices), vtype), clipValue_(clipValue), indices_(indices) {
 
     set_name(input->name());
     setMemoize(false); // Enabling memoization leads to a massive memory leak. 
@@ -190,7 +190,7 @@ public:
       }
       auto input = child(0)->val();
   #if defined(WASM)
-      ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+      ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 2,
                 "Int16::SelectColumnsB is not implemented for wasm.");
       Index num_cols = std::distance(indices_.begin(), indices_.end());
       int8SelectColumnsOfB(reinterpret_cast<int8_t *>(input->data()),
@@ -434,9 +434,9 @@ public:
 
           unquant_mult = unquant_mult*scalar_;
       #if defined(WASM)
-          ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+          ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 2,
               "Int16::Multiply is not implemented for wasm.");
-          ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm8,
+          ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 1,
               "Int8::Multiply is not implemented for wasm.");
       #elif defined(USE_INTGEMM)
           typedef typename intgemm_<vtype>::type Integer;
@@ -496,7 +496,7 @@ public:
 
           unquant_mult = unquant_mult*scalar_;
       #if defined(WASM)
-          ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+          ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 2,
             "Int16::Multiply is not implemented for wasm.");
           ABORT_IF(!shifted_, "Int8::Multiply is not implemented for wasm.");
 
@@ -549,6 +549,32 @@ static inline Expr quantMult(Expr a, bool isA=false, std::string Bname="") {
   return Expression<QuantMultNodeOp<vtype> >(a, isA, Bname);
 }
 
+static inline Expr quantMult(Expr a, bool isA=false, std::string Bname="") {
+  Type elementType = a->value_type();
+  switch(elementType) {
+    case Type::intgemm8:  // The generic case selects CPU automatically, but we set all the types
+                          // manually anyways.
+      return Expression<QuantMultNodeOp<Type::intgemm8>>(a, isA, Bname);
+    case Type::intgemm8ssse3:
+      return Expression<QuantMultNodeOp<Type::intgemm8ssse3>>(a, isA, Bname);
+    case Type::intgemm8avx2: return Expression<QuantMultNodeOp<Type::intgemm8avx2>>(a, isA, Bname);
+    case Type::intgemm8avx512:
+      return Expression<QuantMultNodeOp<Type::intgemm8avx512>>(a, isA, Bname);
+    case Type::intgemm8avx512vnni:
+      return Expression<QuantMultNodeOp<Type::intgemm8avx512vnni>>(a, isA, Bname);
+    case Type::intgemm16:  // The generic case selects CPU automatically, but we set all the types
+                           // manually anyways.
+      return Expression<QuantMultNodeOp<Type::intgemm16>>(a, isA, Bname);
+    case Type::intgemm16sse2:
+      return Expression<QuantMultNodeOp<Type::intgemm16sse2>>(a, isA, Bname);
+    case Type::intgemm16avx2:
+      return Expression<QuantMultNodeOp<Type::intgemm16avx2>>(a, isA, Bname);
+    case Type::intgemm16avx512:
+      return Expression<QuantMultNodeOp<Type::intgemm16avx512>>(a, isA, Bname);
+    default: ABORT("Unsupported type {} for Intgemm type??", elementType);
+  }
+}
+
 template<Type vtype>
 static inline Expr prepareA(Expr a, Expr quantMult, float clipValue, bool shifted=false) {
   return Expression<PrepareANodeOp<vtype> >(a, quantMult, clipValue, shifted);
@@ -562,6 +588,33 @@ static inline Expr prepareB(Expr b, Expr quantMult, float clipValue, bool transp
 template<Type vtype>
 static inline Expr selectColumnsB(Expr b, const std::vector<uint_least32_t> &cols, float clipValue) {
   return Expression<SelectColumnsBNodeOp<vtype > >(b, cols, clipValue);
+}
+
+static inline Expr selectColumnsB(Expr b, const std::vector<uint_least32_t> &cols, float clipValue) {
+  Type elementType = b->value_type();
+  switch(elementType) {
+    case Type::intgemm8:  // The generic case selects CPU automatically, but we set all the types
+                          // manually anyways.
+      return Expression<SelectColumnsBNodeOp<Type::intgemm8>>(b, cols, clipValue);
+    case Type::intgemm8ssse3:
+      return Expression<SelectColumnsBNodeOp<Type::intgemm8ssse3>>(b, cols, clipValue);
+    case Type::intgemm8avx2:
+      return Expression<SelectColumnsBNodeOp<Type::intgemm8avx2>>(b, cols, clipValue);
+    case Type::intgemm8avx512:
+      return Expression<SelectColumnsBNodeOp<Type::intgemm8avx512>>(b, cols, clipValue);
+    case Type::intgemm8avx512vnni:
+      return Expression<SelectColumnsBNodeOp<Type::intgemm8avx512vnni>>(b, cols, clipValue);
+    case Type::intgemm16:  // The generic case selects CPU automatically, but we set all the types
+                           // manually anyways.
+      return Expression<SelectColumnsBNodeOp<Type::intgemm16>>(b, cols, clipValue);
+    case Type::intgemm16sse2:
+      return Expression<SelectColumnsBNodeOp<Type::intgemm16sse2>>(b, cols, clipValue);
+    case Type::intgemm16avx2:
+      return Expression<SelectColumnsBNodeOp<Type::intgemm16avx2>>(b, cols, clipValue);
+    case Type::intgemm16avx512:
+      return Expression<SelectColumnsBNodeOp<Type::intgemm16avx512>>(b, cols, clipValue);
+    default: ABORT("Unsupported type {} for Intgemm type??", elementType);
+  }
 }
 
 template<Type vtype>
@@ -602,6 +655,42 @@ static inline Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, f
 template<Type vtype>
 static inline Expr dot(Expr a, Expr b, bool transA, bool transB, float scale, bool shiftedBias=false) {
   return affine<vtype>(a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+}
+
+static inline Expr dot(Expr a, Expr b, bool transA, bool transB, float scale, bool shiftedBias=false) {
+  Type bElementType = b->value_type();
+  switch(bElementType) {
+    case Type::intgemm8:  // The generic case selects CPU automatically, but we set all the types
+                          // manually anyways.
+      return affine<Type::intgemm8>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm8ssse3:
+      return affine<Type::intgemm8ssse3>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm8avx2:
+      return affine<Type::intgemm8avx2>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm8avx512:
+      return affine<Type::intgemm8avx512>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm8avx512vnni:
+      return affine<Type::intgemm8avx512vnni>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm16:  // The generic case selects CPU automatically, but we set all the types
+                           // manually anyways.
+      return affine<Type::intgemm16>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm16sse2:
+      return affine<Type::intgemm16sse2>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm16avx2:
+      return affine<Type::intgemm16avx2>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    case Type::intgemm16avx512:
+      return affine<Type::intgemm16avx512>(
+          a, b, nullptr, transA, transB, scale, 0 /*currently unused clipValue*/, shiftedBias);
+    default: ABORT("Unsupported type {} for Intgemm type??", bElementType);
+  }
 }
 
 }  // namespace integer

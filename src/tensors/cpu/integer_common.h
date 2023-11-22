@@ -79,15 +79,133 @@ void AddBias(marian::Tensor C, const marian::Tensor Bias);
 #ifdef USE_INTGEMM
 
 template<Type type> struct intgemm_;
-template <> struct intgemm_<Type::int8> {using width = intgemm::Int8;
-                                         using type = int8_t;
-                                         constexpr static const Type intgemmType = Type::intgemm8;};
-template <> struct intgemm_<Type::int16> {using width = intgemm::Int16;
-                                          using type = int16_t;
-                                          constexpr static const Type intgemmType = Type::intgemm16;};
+template <> struct intgemm_<Type::intgemm8> {
+  using width = intgemm::Int8;
+  using type = int8_t;
+};
 
+template <> struct intgemm_<Type::intgemm8ssse3> {
+  using width = intgemm::SSSE3::Kernels8;
+  using type = int8_t;
+};
 
+template <> struct intgemm_<Type::intgemm8avx2> {
+  using width = intgemm::AVX2::Kernels8;
+  using type = int8_t;
+};
 
+template <> struct intgemm_<Type::intgemm8avx512> {
+  using width = intgemm::AVX512BW::Kernels8;
+  using type = int8_t;
+};
+
+template <> struct intgemm_<Type::intgemm8avx512vnni> {
+  using width = intgemm::AVX512VNNI::Kernels8;
+  using type = int8_t;
+};
+
+template <> struct intgemm_<Type::intgemm16> {
+  using width = intgemm::Int16;
+  using type = int16_t;
+};
+
+template <> struct intgemm_<Type::intgemm16sse2> {
+  using width = intgemm::SSE2::Kernels16;
+  using type = int16_t;
+};
+
+template <> struct intgemm_<Type::intgemm16avx2> {
+  using width = intgemm::AVX2::Kernels16;
+  using type = int16_t;
+};
+
+template <> struct intgemm_<Type::intgemm16avx512> {
+  using width = intgemm::AVX512BW::Kernels16;
+  using type = int16_t;
+};
+
+template <Type vtype>
+static inline float& getQuantMult(marian::Tensor val) {
+#if COMPILE_CPU
+  ABORT_IF(!isIntgemm(val->type()), "getQuantMult does not work for type {}", val->type());
+  typedef typename intgemm_<vtype>::type Integer;
+  return *(reinterpret_cast<float*>(val->data<Integer>() + val->shape().elements()));
+#else
+  val;
+  ABORT("Using intgemm binary models is only supported when compiling marian with -DCOMPILE_CPU=ON.");
+#endif
+}
+
+static inline Type getIntgemmType(Type vtype) {
+#if COMPILE_CPU
+  if (vtype == Type::intgemm8) {
+    if (intgemm::kCPU == intgemm::CPUType::AVX512VNNI) {
+      return Type::intgemm8avx512vnni;
+    } else if (intgemm::kCPU == intgemm::CPUType::AVX512BW) {
+      return Type::intgemm8avx512;
+    } else if (intgemm::kCPU == intgemm::CPUType::AVX2) {
+      return Type::intgemm8avx2;
+    } else if (intgemm::kCPU == intgemm::CPUType::SSSE3) {
+      return Type::intgemm8ssse3;
+    } else {
+      ABORT("Your CPU doesn't support SSSE3, necessary for 8bit intgemm to work.");
+    }
+  } else if (vtype == Type::intgemm16) {
+    if (intgemm::kCPU > intgemm::CPUType::AVX2) {
+      return Type::intgemm16avx512;
+    } else if (intgemm::kCPU == intgemm::CPUType::AVX2) {
+      return Type::intgemm16avx2;
+    } else if (intgemm::kCPU >= intgemm::CPUType::SSE2) {
+      return Type::intgemm16sse2;
+    } else {
+      ABORT("Your CPU doesn't support SSE2, necessary for 16bit intgemm to work.");
+    }
+  } else {
+    ABORT("Unrecognised type {}.", vtype);
+  }
+#else
+  ABORT("Using intgemm binary models is only supported when compiling marian with -DCOMPILE_CPU=ON.");
+  return vtype;
+#endif
+}
+
+static inline bool passOrAbort(Type vtype) {
+#if COMPILE_CPU
+  if (vtype == Type::intgemm8 || vtype == Type::intgemm16) {
+    return true;
+  } else if (vtype == Type::intgemm16sse2) {
+    ABORT_IF(intgemm::kCPU < intgemm::CPUType::SSE2, "Your CPU doesn't support the architecture necessary to decode model of type {}. Try older architecture instead.", vtype);
+  } else if (vtype == Type::intgemm8ssse3) {
+    ABORT_IF(intgemm::kCPU < intgemm::CPUType::SSSE3, "Your CPU doesn't support the architecture necessary to decode model of type {}. Try older architecture instead.", vtype);
+  } else if (vtype == Type::intgemm8avx2 || vtype == Type::intgemm16avx2) {
+    ABORT_IF(intgemm::kCPU < intgemm::CPUType::AVX2, "Your CPU doesn't support the architecture necessary to decode model of type {}. Try older architecture instead.", vtype);
+  } else if (vtype == Type::intgemm8avx512 || vtype == Type::intgemm16avx512) {
+    ABORT_IF(intgemm::kCPU < intgemm::CPUType::AVX512BW, "Your CPU doesn't support the architecture necessary to decode model of type {}. Try older architecture instead.", vtype);
+  } else if (vtype == Type::intgemm8avx512vnni) {
+    ABORT_IF(intgemm::kCPU < intgemm::CPUType::AVX512VNNI, "Your CPU doesn't support the architecture necessary to decode model of type {}. Try older architecture instead.", vtype);
+  }
+  return true;
+#else
+  vtype;
+  ABORT("Using intgemm binary models is only supported when compiling marian with -DCOMPILE_CPU=ON.");
+  return false;
+#endif
+}
+
+template <Type vtype>
+static inline float computeQuantMult(marian::Tensor val) {
+#if COMPILE_CPU
+  if(sizeOf(vtype) == 1)
+    return 127.0f / intgemm::MaxAbsolute(val->data(), val->data() + val->shape().elements());
+  else if(sizeOf(vtype) == 2)
+    return 1024.0f;
+  else
+    ABORT("Unhandled type size {}", sizeOf(vtype));
+#else
+  val; 
+  ABORT("Using intgemm binary models is only supported when compiling marian with -DCOMPILE_CPU=ON.");
+#endif
+}
 #else // USE_INTGEMM
 
 struct fakeGemm {
@@ -96,12 +214,50 @@ struct fakeGemm {
 };
 
 template<Type type> struct intgemm_;
-template <> struct intgemm_<Type::int8> {using width = fakeGemm::Int8;
-                                         using type = int8_t;
-                                         constexpr static const Type intgemmType = Type::intgemm8;};
-template <> struct intgemm_<Type::int16> {using width = fakeGemm::Int16;
-                                          using type = int16_t;
-                                          constexpr static const Type intgemmType = Type::intgemm16;};
+template <> struct intgemm_<Type::intgemm8> {
+  using width = fakeGemm::Int8;
+  using type = int8_t;
+};
+
+template <> struct intgemm_<Type::intgemm8ssse3> {
+  using width = fakeGemm::Int8;
+  using type = int8_t;
+};
+
+template <> struct intgemm_<Type::intgemm8avx2> {
+  using width = fakeGemm::Int8;
+  using type = int8_t;
+};
+
+template <> struct intgemm_<Type::intgemm8avx512> {
+  using width = fakeGemm::Int8;
+  using type = int8_t;
+};
+
+template <> struct intgemm_<Type::intgemm8avx512vnni> {
+  using width = fakeGemm::Int8;
+  using type = int8_t;
+};
+
+template <> struct intgemm_<Type::intgemm16> {
+  using width = fakeGemm::Int16;
+  using type = int16_t;
+};
+
+template <> struct intgemm_<Type::intgemm16sse2> {
+  using width = fakeGemm::Int16;
+  using type = int16_t;
+};
+
+template <> struct intgemm_<Type::intgemm16avx2> {
+  using width = fakeGemm::Int16;
+  using type = int16_t;
+};
+
+template <> struct intgemm_<Type::intgemm16avx512> {
+  using width = fakeGemm::Int16;
+  using type = int16_t;
+};
 
 #endif // USE_INTGEMM
 
@@ -121,7 +277,7 @@ void prepareAndTransposeB(io::Item& item, const char * input) {
     // If this is the case, we will need to temporary allocate aligned memory, copy the results, and then free it
     if (reinterpret_cast<uintptr_t>(input) % 64 == 0 && reinterpret_cast<uintptr_t>(output_tensor) % 64 == 0) {
     #if defined(WASM)
-        ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+        ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 2,
                 "Int16::PrepareBQuantizedTransposed is not implemented for wasm.");
         int8PrepareBFromQuantizedTransposed(reinterpret_cast<const int8_t *>(input),
                                         (Index)rows(item.shape),  //Since we only transposed, but didn't update the shape when constructing the binary 
@@ -138,7 +294,7 @@ void prepareAndTransposeB(io::Item& item, const char * input) {
         std::copy(input, input + rows(item.shape)*cols(item.shape), aligned_input);
         Integer * aligned_output = reinterpret_cast<Integer *>(genericMalloc(512, rows(item.shape)*cols(item.shape)*sizeof(Integer)));
     #if defined(WASM)
-        ABORT_IF(intgemm_<vtype>::intgemmType == Type::intgemm16,
+        ABORT_IF(isIntgemm(vtype) && sizeof(vtype) == 2,
                 "Int16::PrepareBQuantizedTransposed is not implemented for wasm.");
         int8PrepareBFromQuantizedTransposed(reinterpret_cast<const int8_t *>(aligned_input),
                                         (Index)rows(item.shape),  //Since we only transposed, but didn't update the shape when constructing the binary, 

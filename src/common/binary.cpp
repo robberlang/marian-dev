@@ -58,7 +58,13 @@ void loadItems(const void* current, std::vector<io::Item>& items, bool mapped) {
   get<char>(current, offset);
 
   for(int i = 0; i < numHeaders; ++i) {
-    if(items[i].mapped) { // memory-mapped, hence only set pointer
+    // For intgemm AVX512 and AVX512VNNI have the same arangement, but the VNNI algorithm is faster.
+    // Change the type to the fastest one supported.
+    if(items[i].type == Type::intgemm8avx512) {
+      items[i].type = cpu::integer::getIntgemmType(Type::intgemm8);
+    }
+    if(items[i].mapped) {  // memory-mapped, hence only set pointer
+      // @TOOD: verify this actually works for the hardware-specific ones like intgemm8avx2
       ABORT_IF(items[i].type == Type::intgemm8 || items[i].type == Type::intgemm16,
                "mmap format not supported for hardware non-specific intgemm matrices");
       items[i].ptr = get<char>(current, headers[i].dataLength);
@@ -66,6 +72,9 @@ void loadItems(const void* current, std::vector<io::Item>& items, bool mapped) {
       uint64_t len = headers[i].dataLength;
       items[i].bytes.resize(len);
       const char* ptr = get<char>(current, len);
+      // Intgemm8/16 matrices in binary model are just quantized, however they also need to be
+      // reordered Reordering depends on the architecture (SSE/AVX2/AVX512) so we read in the
+      // quantized matrices and then reorder them before adding them as a parameter in the graph.
       if(matchType<intgemm8>(items[i].type)) {
         if(items[i].name.find("Wemb") != std::string::npos) {  // Since Wemb need to be dequantised,
                                                                // we have a special case for them
@@ -74,9 +83,10 @@ void loadItems(const void* current, std::vector<io::Item>& items, bool mapped) {
               items[i].shape.elements()
               * sizeof(float));  // We should have an extra float at the back but that requires a
                                  // different format, due to allocator work
-          cpu::integer::unquantizeWemb<Type::int8>(items[i], ptr);
+          cpu::integer::unquantizeWemb<Type::intgemm8>(items[i], ptr);
         } else {
-          cpu::integer::prepareAndTransposeB<Type::int8>(items[i], ptr);
+          items[i].type = cpu::integer::getIntgemmType(Type::intgemm8);
+          cpu::integer::prepareAndTransposeB<Type::intgemm8>(items[i], ptr);
         }
       } else if(matchType<intgemm16>(items[i].type)) {
         if(items[i].name.find("Wemb") != std::string::npos) {  // Since Wemb need to be dequantised,
@@ -86,9 +96,10 @@ void loadItems(const void* current, std::vector<io::Item>& items, bool mapped) {
               items[i].shape.elements()
               * sizeof(float));  // We should have an extra float at the back but that requires a
                                  // different format, due to allocator work
-          cpu::integer::unquantizeWemb<Type::int16>(items[i], ptr);
+          cpu::integer::unquantizeWemb<Type::intgemm16>(items[i], ptr);
         } else {
-          cpu::integer::prepareAndTransposeB<Type::int16>(items[i], ptr);
+          items[i].type = cpu::integer::getIntgemmType(Type::intgemm16);
+          cpu::integer::prepareAndTransposeB<Type::intgemm16>(items[i], ptr);
         }
       } else {
         std::copy(ptr, ptr + len, items[i].bytes.begin());

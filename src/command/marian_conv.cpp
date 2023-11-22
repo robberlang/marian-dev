@@ -26,7 +26,9 @@ int main(int argc, char** argv) {
     cli->add<std::string>("--from,-f", "Input model", "model.npz");
     cli->add<std::string>("--to,-t", "Output model", "model.bin");
     cli->add<std::string>("--export-as", "Kind of conversion: marian-bin or onnx-{encode,decoder-step,decoder-init,decoder-stop}", "marian-bin");
-    cli->add<std::string>("--gemm-type,-g", "GEMM Type to be used: float32, packed16, packed8avx2, packed8avx512, intgemm8, intgemm16", "float32");
+    cli->add<std::string>("--gemm-type,-g", "GEMM Type to be used: float32, packed16, packed8avx2, packed8avx512, "
+                          "intgemm8, intgemm8ssse3, intgemm8avx2, intgemm8avx512, intgemm16, intgemm16sse2, intgemm16avx2, intgemm16avx512", 
+                          "float32");
     cli->add<std::vector<std::string>>("--vocabs,-V", "Vocabulary file, required for ONNX export and shortlist conversion");
     cli->add<std::vector<std::string>>("--shortlist,-s", "Shortlist conversion: filePath firstNum bestNum threshold");
     cli->add<std::string>("--dump,-d", "Binary shortlist dump path","lex.bin");
@@ -58,23 +60,8 @@ int main(int argc, char** argv) {
   auto exportAs = options->get<std::string>("export-as");
   auto vocabPaths = options->get<std::vector<std::string>>("vocabs");// , std::vector<std::string>());
   
-  auto saveGemmTypeStr = options->get<std::string>("gemm-type", "float32");
-  Type saveGemmType;
-  if(saveGemmTypeStr == "float32") {
-    saveGemmType = Type::float32;
-  } else if(saveGemmTypeStr == "packed16") {  // packed16 (fbgemm) only supports AVX2. AVX512 might be added later
-    saveGemmType = Type::packed16;
-  } else if(saveGemmTypeStr == "packed8avx2") { // packed8 for AVX2 (fbgemm)
-    saveGemmType = Type::packed8avx2;
-  } else if(saveGemmTypeStr == "packed8avx512") { // packed8 for AVX512 (fbgemm)
-    saveGemmType = Type::packed8avx512;
-  } else if(saveGemmTypeStr == "intgemm8") { // intgemm 8 bit format
-    saveGemmType = Type::intgemm8;
-  } else if(saveGemmTypeStr == "intgemm16") { // intgemm 16 bit format
-    saveGemmType = Type::intgemm16;
-  } else {
-    ABORT("Unknown gemm-type: {}", saveGemmTypeStr);
-  }
+  // We accept any type here and will later croak during packAndSave if the type cannot be used for conversion
+  Type saveGemmType = typeFromString(options->get<std::string>("gemm-type", "float32"));
 
   LOG(info, "Outputting {}, precision: {}", modelTo, saveGemmType);
 

@@ -75,6 +75,8 @@ public:
     for (auto p : params()->getMap()) {
       std::string pName = p.first;
 
+      LOG(info, "Processing parameter {} with shape {} and type {}", pName, p.second->shape(), p.second->value_type());
+
       if (!namespace_.empty()) {
         if (pName.substr(0, namespace_.size() + 2) == namespace_ + "::")
           pName = pName.substr(namespace_.size() + 2);
@@ -187,8 +189,10 @@ public:
 #else
         ABORT("Packed type {} only supported when compiled with -DUSE_FBGEMM=on", gemmElementType);
 #endif
-      } else if ((gemmElementType == Type::intgemm8 || gemmElementType == Type::intgemm16) &&
-      (pName.find("_W") == pName.length() - 3 || pName.find("_W") == pName.length() - 2  || ((pName.find("Wemb") != std::string::npos) && compressWemb))) {
+      } else if (isIntgemm(gemmElementType) && (pName.find("_W") == pName.length() - 3 || pName.find("_W") == pName.length() - 2
+                    || ((pName.find("Wemb") != std::string::npos) && compressWemb
+                        && (gemmElementType == Type::intgemm8
+                            || gemmElementType == Type::intgemm16)))) {
 #ifdef COMPILE_CPU
         using cpu::integer::cols;
         using cpu::integer::rows;
@@ -206,36 +210,86 @@ public:
           allocator->allocate(tmp, val->shape(), val->type());
           Transpose10(tmp, val);
         }
-        if (gemmElementType == Type::intgemm8) {
+        if(sizeOf(gemmElementType) == 1) { // is 8-bit Intgemm type
 #if defined(WASM)
           ABORT("Int8::PrepareA is not implemented for wasm.");
 #elif defined(USE_INTGEMM)
           float quantMult = 127.0f / intgemm::MaxAbsolute(val->data(), val->data() + val->shape().elements());
-          intgemm::Int8::PrepareA(tmp->data(), /*input*/
-                                paramMat->data<int8_t>(), /*output*/
-                                quantMult, /*Quant Mult*/
-                                rows(val),
-                                cols(val));
+
+          // Hardware-specific conversions which allow to implement memory-mapping and avoid conversion at runtime
+          cpu::integer::passOrAbort(gemmElementType); // Check if the hardware supports the GEMM type
+          if(isSsse3(gemmElementType)) {
+            intgemm::SSSE3::Kernels8::PrepareBTransposed(tmp->data(), /*input*/
+                                                    paramMat->data<int8_t>(), /*output*/
+                                                    quantMult, /*Quant Mult*/
+                                                    rows(val),
+                                                    cols(val));
+          } else if(isAvx2(gemmElementType)) {
+            intgemm::AVX2::Kernels8::PrepareBTransposed(tmp->data(), /*input*/
+                                                   paramMat->data<int8_t>(), /*output*/
+                                                   quantMult, /*Quant Mult*/
+                                                   rows(val),
+                                                   cols(val));
+          } else if(isAvx512(gemmElementType)) {
+            intgemm::AVX512BW::Kernels8::PrepareBTransposed(tmp->data(),              /*input*/
+                                                     paramMat->data<int8_t>(), /*output*/
+                                                     quantMult, /*Quant Mult*/
+                                                     rows(val),
+                                                     cols(val));
+          } else {
+            ABORT_IF(gemmElementType != Type::intgemm8, "Type {} is not supported", gemmElementType); // shouldn't really happen, but let's make sure
+            intgemm::Int8::PrepareA(tmp->data(), /*input*/
+                                    paramMat->data<int8_t>(), /*output*/
+                                    quantMult, /*Quant Mult*/
+                                    rows(val),
+                                    cols(val));
+          }
           //Put the quantMult at the back of the tensor
           *(reinterpret_cast<float *>(paramMat->data<int8_t>() + val->shape().elements())) = quantMult;
 #else
     ABORT("Int8::PrepareA not implemented yet for ruy");
 #endif
-        } else {
+        } else if(sizeOf(gemmElementType) == 2) { // is 16-bit Intgemm type
 #if defined(WASM)
           ABORT("Int16::PrepareA is not implemented for wasm.");
 #elif defined(USE_INTGEMM)
           float quantMult = 1024.0f;
-          intgemm::Int16::PrepareA(tmp->data(), /*input*/
-                                paramMat->data<int16_t>(), /*output*/
-                                quantMult, /*Quant Mult*/
-                                rows(val),
-                                cols(val));
+
+          // Hardware-specific conversions which allow to implement memory-mapping and avoid conversion at runtime
+          cpu::integer::passOrAbort(gemmElementType); // Check if the hardware supports the GEMM type
+          if(isSse2(gemmElementType)) {
+            intgemm::SSE2::Kernels16::PrepareBTransposed(tmp->data(), /*input*/
+                                                    paramMat->data<int16_t>(), /*output*/
+                                                    quantMult, /*Quant Mult*/
+                                                    rows(val),
+                                                    cols(val));
+          } else if(isAvx2(gemmElementType)) {
+            intgemm::AVX2::Kernels16::PrepareBTransposed(tmp->data(), /*input*/
+                                                    paramMat->data<int16_t>(), /*output*/
+                                                    quantMult, /*Quant Mult*/
+                                                    rows(val),
+                                                    cols(val));
+          } else if(isAvx512(gemmElementType)) {
+            intgemm::AVX512BW::Kernels16::PrepareBTransposed(tmp->data(), /*input*/
+                                                      paramMat->data<int16_t>(), /*output*/
+                                                      quantMult, /*Quant Mult*/
+                                                      rows(val),
+                                                      cols(val));
+          } else {
+            ABORT_IF(gemmElementType != Type::intgemm16, "Type {} is not supported", gemmElementType); // shouldn't really happen, but let's make sure
+            intgemm::Int16::PrepareA(tmp->data(), /*input*/
+                                     paramMat->data<int16_t>(), /*output*/
+                                     quantMult, /*Quant Mult*/
+                                     rows(val),
+                                     cols(val));
+          }
           //Put the quantMult at the back of the tensor
           *(reinterpret_cast<float *>(paramMat->data<int16_t>() + val->shape().elements())) = quantMult;
 #else
-      ABORT("Int16::PrepareA is not implemented for wasm.");
+      ABORT("Int16::PrepareA is not implemented for ruy.");
 #endif
+        } else {
+          ABORT("Incorrect Intgemm type size: {}", sizeOf(gemmElementType));
         }
 
         //Save... Same as the fbgemm case
