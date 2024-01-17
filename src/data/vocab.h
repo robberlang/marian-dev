@@ -49,10 +49,12 @@ public:
 
   // line of text to list of token ids, can perform tokenization
   Words encode(const std::string& line,
-               bool addEOS = true,
-               bool inference = false,
-               InputFormat inputFormat = InputFormat::PLAINTEXT,
-               bool entitizeTags = false) const;
+               bool addEOS                = true,
+               bool inference             = false,
+               InputFormat inputFormat    = InputFormat::PLAINTEXT,
+               bool entitizeTags          = false,
+               const std::string& srcLang = std::string(),
+               const std::string& trgLang = std::string()) const;
 
   Words encodeWithByteRanges(const string_view &line,
                                std::vector<string_view> &byteRanges,

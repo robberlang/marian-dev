@@ -117,8 +117,16 @@ Words Vocab::encode(const std::string& line,
                     bool addEOS,
                     bool inference,
                     InputFormat inputFormat,
-                    bool entitizeTags) const {
-  return vImpl_->encode(line, addEOS, inference, inputFormat, entitizeTags);
+                    bool entitizeTags,
+                    const std::string& srcLang,
+                    const std::string& trgLang) const {
+  return vImpl_->encode(line,
+                        addEOS,
+                        inference,
+                        inputFormat,
+                        entitizeTags,
+                        srcLang,
+                        trgLang);
 }
 
 // same as Vocab::encode(...) above, but loads string_views corresponding to

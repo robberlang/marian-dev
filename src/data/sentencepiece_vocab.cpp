@@ -436,9 +436,17 @@ public:
                bool addEOS,
                bool inference,
                InputFormat inputFormat,
-               bool entitizeTags) const override {
+               bool entitizeTags,
+               const std::string& srcLang,
+               const std::string& trgLang) const override {
     Words words;
     std::vector<int> spmIds;
+    if(!srcLang.empty()) {
+      words.push_back(encodeSpecialSymbol("<" + srcLang + ">"));
+    }
+    if(!trgLang.empty()) {
+      words.push_back(encodeSpecialSymbol("<" + trgLang + ">"));
+    }
     if(inference || alpha_ == 0) {
       if(!inference || inputFormat == InputFormat::PLAINTEXT) {
         spm_->Encode(line, &spmIds);
@@ -790,8 +798,8 @@ public:
       spm_->SampleEncode(line, -1, alpha_, &spmIds);
     }
 
-    if(words.empty()) {
-      words.reserve(spmIds.size() + addEOS);
+    if(!spmIds.empty()) {
+      words.reserve(words.size() + spmIds.size() + addEOS);
       for(auto&& spmId : spmIds)
         words.push_back(Word::fromWordIndex(spmId));
     }

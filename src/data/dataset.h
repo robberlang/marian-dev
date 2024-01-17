@@ -20,6 +20,8 @@ protected:
   bool inference_{false};
   InputFormat inputFormat_{InputFormat::PLAINTEXT};
   bool entitizeTags_{false};
+  std::string srcLangCode_;
+  std::string trgLangCode_;
 
 public:
   typedef Batch batch_type;
@@ -31,8 +33,12 @@ public:
       : paths_(std::move(paths)),
         options_(options),
         inference_(options != nullptr ? options->get<bool>("inference", false) : false),
-        inputFormat_(options != nullptr ? ConvertInputFormat(options->get<std::string>("input-format", "")) : InputFormat::PLAINTEXT),
-        entitizeTags_(options != nullptr ? options->get<bool>("entitize-tags", false) : false) {}
+        inputFormat_(options != nullptr
+                         ? ConvertInputFormat(options->get<std::string>("input-format", ""))
+                         : InputFormat::PLAINTEXT),
+        entitizeTags_(options != nullptr ? options->get<bool>("entitize-tags", false) : false),
+        srcLangCode_(options != nullptr ? options->get<std::string>("source-language", "") : ""),
+        trgLangCode_(options != nullptr ? options->get<std::string>("target-language", "") : "") {}
 
   DatasetBase(Ptr<Options> options) : DatasetBase({}, options) {}
 

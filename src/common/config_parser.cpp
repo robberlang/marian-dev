@@ -666,6 +666,10 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
     ->implicit_val("plaintext");
   cli.add<bool>("--entitize-tags",
       "Entitize tags. Assumes that training was done on entitized tags");
+  cli.add<std::string>("--source-language",
+      "Source language code", "");
+  cli.add<std::string>("--target-language",
+      "Target language code", "");
   cli.add<std::string>("--alignment",
      "Return word alignment. Possible values: 0.0-1.0, hard, soft")
     ->implicit_val("hard");
@@ -746,6 +750,10 @@ void ConfigParser::addOptionsScoring(cli::CLIWrapper& cli) {
     ->implicit_val("plaintext");
   cli.add<bool>("--entitize-tags",
       "Entitize tags. Assumes that training was done on entitized tags");
+  cli.add<std::string>("--source-language",
+      "Source language code", "");
+  cli.add<std::string>("--target-language",
+      "Target language code", "");
   cli.add<std::string>("--alignment",
      "Return word alignment. Possible values: 0.0-1.0, hard, soft")
     ->implicit_val("hard");

@@ -108,9 +108,13 @@ public:
 
   std::string translate(const std::string& input,
                         const size_t beamSize,
-                        const std::string& textFormat) {
+                        const std::string& textFormat,
+                        const std::string& srcLang,
+                        const std::string& trgLang) {
     options_->set("beam-size", beamSize);
     options_->set("input-format", textFormat);
+    options_->set("source-language", srcLang);
+    options_->set("target-language", trgLang);
     // split tab-separated input into fields if necessary
     auto inputs = options_->get<bool>("tsv", false)
                       ? convertTsvToLists(input, options_->get<size_t>("tsv-fields", 1))
@@ -164,8 +168,12 @@ public:
 
   std::string placeTagsInTarget(const std::string& sourceText,
                                 const std::string& targetText,
-                                const std::string& textFormat) {
+                                const std::string& textFormat,
+                                const std::string& srcLang,
+                                const std::string& trgLang) {
     options_->set("input-format", textFormat);
+    options_->set("source-language", srcLang);
+    options_->set("target-language", trgLang);
     InputFormat inputFormat = ConvertInputFormat(textFormat);
     bool entitizeTags = options_->get<bool>("entitize-tags");
     std::vector<std::string> inputs({sourceText, targetText});

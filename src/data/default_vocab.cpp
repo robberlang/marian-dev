@@ -60,8 +60,10 @@ public:
   Words encode(const std::string& line,
                bool addEOS,
                bool /*inference*/,
-               InputFormat /*inputFormat*/ = InputFormat::PLAINTEXT,
-               bool /*entitizeTags*/ = false) const override {
+               InputFormat /*inputFormat*/    = InputFormat::PLAINTEXT,
+               bool /*entitizeTags*/          = false,
+               const std::string& /*srcLang*/ = std::string(),
+               const std::string& /*trgLang*/ = std::string()) const override {
     auto lineTokens = utils::split(line, " ");
     return (*this)(lineTokens, addEOS);
   }
