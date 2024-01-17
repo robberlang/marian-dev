@@ -578,7 +578,10 @@ void FactoredVocab::constructNormalizationInfoForVocab() {
                                         bool addEOS /*= true*/,
                                         bool /*inference*/ /*= false*/,
                                         InputFormat /*inputFormat*/ /*= InputFormat::PLAINTEXT*/,
-                                        bool /*entitizeTags*/ /*= false*/) const /*override final*/ {
+                                        bool /*entitizeTags*/ /*= false*/,
+                                        const std::string& /*srcLang*/ /*= std::string()*/,
+                                        const std::string& /*trgLang*/ /*= std::string()*/) const
+/*override final*/ {
   std::vector<std::string> lineTokens;
   utils::split(line, lineTokens, " ");
   Words res; res.reserve(lineTokens.size() + addEOS);

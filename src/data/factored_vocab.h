@@ -30,10 +30,12 @@ public:
   virtual const std::vector<std::string>& suffixes() const override final;
   virtual Word operator[](const std::string& word) const override final;
   virtual Words encode(const std::string& line,
-                       bool addEOS = true,
-                       bool inference = false,
-                       InputFormat inputFormat = InputFormat::PLAINTEXT,
-                       bool entitizeTags = false) const override final;
+                       bool addEOS                = true,
+                       bool inference             = false,
+                       InputFormat inputFormat    = InputFormat::PLAINTEXT,
+                       bool entitizeTags          = false,
+                       const std::string& srcLang = std::string(),
+                       const std::string& trgLang = std::string()) const override final;
   virtual std::string decode(const Words& sentence,
                              bool ignoreEos = true,
                              InputFormat inputFormat = InputFormat::PLAINTEXT,

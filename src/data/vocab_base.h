@@ -29,10 +29,12 @@ public:
   virtual Word operator[](const std::string& word) const = 0;
 
   virtual Words encode(const std::string& line,
-                       bool addEOS = true,
-                       bool inference = false,
-                       InputFormat inputFormat = InputFormat::PLAINTEXT,
-                       bool entitizeTags = false) const = 0;
+                       bool addEOS                = true,
+                       bool inference             = false,
+                       InputFormat inputFormat    = InputFormat::PLAINTEXT,
+                       bool entitizeTags          = false,
+                       const std::string& srcLang = std::string(),
+                       const std::string& trgLang = std::string()) const = 0;
 
   virtual std::string decode(const Words& sentence,
                              bool ignoreEos = true,

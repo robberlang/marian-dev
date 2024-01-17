@@ -44,8 +44,13 @@ SentenceTuple TextInput::next() {
   for(size_t i = 0; i < files_.size(); ++i) {
     std::string line;
     if(io::getline(*files_[i], line)) {
-      Words words
-          = vocabs_[i]->encode(line, /*addEOS =*/true, inference_, inputFormat_, entitizeTags_);
+      Words words = vocabs_[i]->encode(line,
+                                       /*addEOS =*/true,
+                                       inference_,
+                                       inputFormat_,
+                                       entitizeTags_,
+                                       srcLangCode_,
+                                       trgLangCode_);
       if(maxLengthCrop_ && words.size() > maxLength_
          && static_cast<size_t>(std::count_if(words.begin(), words.end(), [](const Word& w) {
               return !w.getMarkupTag().operator bool();
