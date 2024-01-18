@@ -75,6 +75,7 @@ public:
 
     trgVocab_ = New<Vocab>(options_, vocabPaths.size() - 1);
     trgVocab_->load(vocabPaths.back());
+    trgVocab_->ignoreLangsInEncoding(true);
 
     // load lexical shortlist
     if(options_->hasAndNotEmpty("shortlist")) {

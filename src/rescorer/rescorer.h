@@ -74,6 +74,8 @@ public:
       corpus_ = New<CorpusNBest>(options_);
     else
       corpus_ = New<Corpus>(options_);
+    auto trgVocab = corpus_->getVocabs().back();
+    trgVocab->ignoreLangsInEncoding(true);
     corpus_->prepare();
 
     auto devices = Config::getDevices(options_);
