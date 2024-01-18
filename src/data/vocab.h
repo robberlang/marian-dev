@@ -20,6 +20,7 @@ private:
   Ptr<IVocab> vImpl_;
   Ptr<Options> options_;
   size_t batchIndex_;
+  bool ignoreLangsInEncoding_{false};
 
 public:
   Vocab(Ptr<Options> options, size_t batchIndex)
@@ -38,6 +39,8 @@ public:
   void create(const std::string& vocabPath,
               const std::string& trainPath,
               size_t maxSize);
+
+  void ignoreLangsInEncoding(bool ignoreLangsInEncoding);
 
   // string token to token id
   Word operator[](const std::string& word) const;

@@ -71,6 +71,7 @@ public:
 
     trgVocab_ = New<Vocab>(options_, vocabPaths.size() - 1);
     trgVocab_->load(vocabPaths.back());
+    trgVocab_->ignoreLangsInEncoding(true);
     auto srcVocab = srcVocabs_.front();
 
     std::vector<int> lshOpts = options_->get<std::vector<int>>("output-approx-knn");

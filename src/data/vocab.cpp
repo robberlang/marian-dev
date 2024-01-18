@@ -86,6 +86,10 @@ void Vocab::create(const std::string& vocabPath,
   create(vocabPath, std::vector<std::string>({trainPath}), maxSize);
 }
 
+void Vocab::ignoreLangsInEncoding(bool ignoreLangsInEncoding) {
+  ignoreLangsInEncoding_ = ignoreLangsInEncoding;
+}
+
 void Vocab::createFake() {
   if(!vImpl_)
     vImpl_ = createDefaultVocab(); // DefaultVocab is OK here
@@ -114,13 +118,11 @@ Words Vocab::encode(const std::string& line,
                     bool entitizeTags,
                     const std::string& srcLang,
                     const std::string& trgLang) const {
-  return vImpl_->encode(line,
-                        addEOS,
-                        inference,
-                        inputFormat,
-                        entitizeTags,
-                        srcLang,
-                        trgLang);
+  if(!ignoreLangsInEncoding_) {
+    return vImpl_->encode(line, addEOS, inference, inputFormat, entitizeTags, srcLang, trgLang);
+  } else {
+    return vImpl_->encode(line, addEOS, inference, inputFormat, entitizeTags);
+  }
 }
 
 // convert sequence of token ids to single line, can perform detokenization
