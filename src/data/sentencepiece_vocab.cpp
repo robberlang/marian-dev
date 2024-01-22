@@ -442,10 +442,14 @@ public:
     Words words;
     std::vector<int> spmIds;
     if(!srcLang.empty()) {
-      words.push_back(encodeSpecialSymbol("<" + srcLang + ">"));
+      Word wrd(encodeSpecialSymbol("<" + srcLang + ">"));
+      if (wrd.toWordIndex() != (WordIndex)-1)
+        words.push_back(wrd);
     }
     if(!trgLang.empty()) {
-      words.push_back(encodeSpecialSymbol("<" + trgLang + ">"));
+      Word wrd(encodeSpecialSymbol("<" + trgLang + ">"));
+      if(wrd.toWordIndex() != (WordIndex)-1)
+        words.push_back(wrd);
     }
     if(inference || alpha_ == 0) {
       if(!inference || inputFormat == InputFormat::PLAINTEXT) {
