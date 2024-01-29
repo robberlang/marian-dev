@@ -168,11 +168,11 @@ private:
     int64_t asInt;
     double asDouble;
 
-    // Text boolean values should be treated as a string
+    // Text boolean values should be treated as a string except for the ones that are used by convert<bool>::encode (true/false)
     auto asString  = v.as<std::string>();
-    bool isTextBool = asString.size() == 1 && asString.find_first_of("nyNYtfTF") == 0;
+    bool isTextBool = asString == "true" || asString == "false";
 
-    if(YAML::convert<bool>::decode(v, asBool) && !isTextBool) {
+    if(isTextBool && YAML::convert<bool>::decode(v, asBool)) {
       value_ = asBool;
       type_ = NodeType::Bool;
     }
