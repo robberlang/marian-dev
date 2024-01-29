@@ -443,13 +443,19 @@ public:
     std::vector<int> spmIds;
     if(!srcLang.empty()) {
       Word wrd(encodeSpecialSymbol("<" + srcLang + ">"));
-      if (wrd.toWordIndex() != (WordIndex)-1)
+      if(wrd.toWordIndex() != (WordIndex)-1) {
         words.push_back(wrd);
+      } else {
+        LOG(info, "[SentencePiece] Could not encode expected special symbol <{}>", srcLang);
+      }
     }
     if(!trgLang.empty()) {
       Word wrd(encodeSpecialSymbol("<" + trgLang + ">"));
-      if(wrd.toWordIndex() != (WordIndex)-1)
+      if(wrd.toWordIndex() != (WordIndex)-1) {
         words.push_back(wrd);
+      } else {
+        LOG(info, "[SentencePiece] Could not encode expected special symbol <{}>", trgLang);
+      }
     }
     if(inference || alpha_ == 0) {
       if(!inference || inputFormat == InputFormat::PLAINTEXT) {
