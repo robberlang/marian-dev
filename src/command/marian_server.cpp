@@ -18,13 +18,15 @@ int main(int argc, char **argv) {
 
   size_t beamSize = options->get<size_t>("beam-size");
   std::string inputFormat = options->get<std::string>("input-format", "");
+  std::string srcLang     = options->get<std::string>("source-language", "");
+  std::string trgLang     = options->get<std::string>("target-language", "");
   // Initialize web server
   WSServer server;
   server.config.port = (short)options->get<size_t>("port", 8080);
 
   auto &translate = server.endpoint["^/translate/?$"];
 
-  translate.on_message = [&task, quiet, beamSize, &inputFormat](
+  translate.on_message = [&task, quiet, beamSize, &inputFormat, &srcLang, &trgLang](
                              Ptr<WSServer::Connection> connection,
                              Ptr<WSServer::InMessage> message) {
     // Get input text
@@ -33,7 +35,7 @@ int main(int argc, char **argv) {
 
     // Translate
     timer::Timer timer;
-    auto outputText = task->translate(inputText, beamSize, inputFormat);
+    auto outputText = task->translate(inputText, beamSize, inputFormat, srcLang, trgLang);
     LOG(info, "Best translation: {}", outputText);
     *sendStream << outputText << std::endl;
     if(!quiet)
