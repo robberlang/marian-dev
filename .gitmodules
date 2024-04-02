@@ -1,23 +1,23 @@
 [submodule "examples"]
 	path = examples
-	url = https://github.com/marian-nmt/marian-examples
+	url = ../marian-examples
 [submodule "regression-tests"]
 	path = regression-tests
-	url = https://github.com/marian-nmt/marian-regression-tests
+	url = ../marian-regression-tests
 [submodule "src/3rd_party/sentencepiece"]
 	path = src/3rd_party/sentencepiece
-	url = https://github.com/robberlang/sentencepiece
+	url = ../sentencepiece
 	branch = add_dummy_prefix_option_on_encode
 [submodule "src/3rd_party/nccl"]
 	path = src/3rd_party/nccl
-	url = https://github.com/marian-nmt/nccl
+	url = ../nccl
 [submodule "src/3rd_party/fbgemm"]
 	path = src/3rd_party/fbgemm
-	url = https://github.com/marian-nmt/FBGEMM
+	url = ../FBGEMM
 	branch = master
 [submodule "src/3rd_party/intgemm"]
 	path = src/3rd_party/intgemm
-	url = https://github.com/marian-nmt/intgemm/
+	url = ../intgemm/
 [submodule "src/3rd_party/simple-websocket-server"]
 	path = src/3rd_party/simple-websocket-server
-	url = https://github.com/marian-nmt/Simple-WebSocket-Server
+	url = ../Simple-WebSocket-Server
