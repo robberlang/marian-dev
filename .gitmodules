@@ -1,29 +1,30 @@
 [submodule "examples"]
 	path = examples
-	url = https://github.com/marian-nmt/marian-examples
+	url = ../marian-examples
 [submodule "regression-tests"]
 	path = regression-tests
-	url = https://github.com/marian-nmt/marian-regression-tests
+	url = ../marian-regression-tests
 [submodule "src/3rd_party/sentencepiece"]
 	path = src/3rd_party/sentencepiece
-	url = https://github.com/robberlang/sentencepiece
+	url = ../sentencepiece
 	branch = browsermt-dummy_prefix_option_on_encode
 [submodule "src/3rd_party/nccl"]
 	path = src/3rd_party/nccl
-	url = https://github.com/marian-nmt/nccl
+	url = ../nccl
 [submodule "src/3rd_party/fbgemm"]
 	path = src/3rd_party/fbgemm
-	url = https://github.com/marian-nmt/FBGEMM
+	url = ../FBGEMM
 	branch = master
 [submodule "src/3rd_party/intgemm"]
 	path = src/3rd_party/intgemm
-	url = https://github.com/kpu/intgemm
+	url = ../intgemm
+	branch = kpu-master
 [submodule "src/3rd_party/simple-websocket-server"]
 	path = src/3rd_party/simple-websocket-server
-	url = https://github.com/marian-nmt/Simple-WebSocket-Server
+	url = ../Simple-WebSocket-Server
 [submodule "src/3rd_party/onnxjs"]
 	path = src/3rd_party/onnxjs
-	url = https://github.com/browsermt/onnxjs
+	url = ../onnxjs
 [submodule "src/3rd_party/ruy"]
 	path = src/3rd_party/ruy
 	url = https://github.com/google/ruy
