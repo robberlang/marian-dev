@@ -857,6 +857,8 @@ public:
       }
     }
 
+    if(addEOS)
+      words.push_back(getEosId());
 #if 0
     for(const auto& word : words) {
       if(word.getMarkupTag()) {
@@ -872,8 +874,6 @@ public:
       }
     }
 #endif
-    if(addEOS)
-      words.push_back(getEosId());
     return words;
   }
 
@@ -970,9 +970,10 @@ public:
             }
             if(!firstWordMet) {
               firstWordMet = true;
-            } else if(!keepTagsOutOfWords
-                      && (!spacePrefix.back().empty() || wordStartsWithAlpha(word)
-                          || wordEndsWithAlpha(word))) {
+            }
+            if(!keepTagsOutOfWords && word != getEosId()
+               && ((firstWordMet && !spacePrefix.back().empty()) || wordStartsWithAlpha(word)
+                   || wordEndsWithAlpha(word))) {
               keepTagsOutOfWords = true;
             }
           }
@@ -1030,6 +1031,10 @@ public:
                 // if open, move left, if close, move right to where there is a space
                 // deal with everything here:
                 if(word.getMarkupTag()->type() != TagType::CLOSE_TAG) {
+                  // it is possible that the action of moving an open tag out to the beginning of
+                  // a word here may be reversed later (when the closing tag is encountered and
+                  // the source element content is found to be the same as the original proposed
+                  // target element content)
                   if(wordStartsWithAlpha(sentence[j])) {
                     done = true;
                     size_t previousWordsEndIdx = spPieces.size();
@@ -1281,33 +1286,19 @@ public:
                 lineHasTrailingSpace = true;
               }
             }
-            bool massaged = false;
             if(word.getMarkupTag()->type() == TagType::CLOSE_TAG
                && !word.getMarkupTag()->elementContent().empty() && prevMarkupTag
                && prevMarkupTag->identifier() == word.getMarkupTag()->identifier()
-               && word.getMarkupTag()->elementContent().length() <= leftPart.length()) {
-              size_t contentPos = leftPart.find(word.getMarkupTag()->elementContent());
-              if(contentPos != std::string::npos) {
-                size_t prevTagPos = line.rfind(prevMarkupTag->tag());
-                if(prevTagPos != std::string::npos
-                   && (word.getMarkupTag()->elementContent().length() < leftPart.length()
-                       || prevTagPos + prevMarkupTag->tag().length() < line.length())) {
-                  line.erase(prevTagPos, prevMarkupTag->tag().length());
-                  line += leftPart.substr(0, contentPos);
-                  line += prevMarkupTag->tag();
-                  line += leftPart.substr(contentPos,
-                                          word.getMarkupTag()->elementContent().length());
-                  line += std::move(middlePart);
-                  line += leftPart.substr(contentPos
-                                          + word.getMarkupTag()->elementContent().length());
-                  massaged = true;
-                }
+               && word.getMarkupTag()->elementContent() == leftPart) {
+              size_t prevTagPos = line.rfind(prevMarkupTag->tag());
+              // previous tag is expected to always be found
+              if(prevTagPos != std::string::npos
+                 && prevTagPos + prevMarkupTag->tag().length() < line.length()) {
+                line.erase(prevTagPos, prevMarkupTag->tag().length());
+                line += prevMarkupTag->tag();
               }
             }
-            if(!massaged) {
-              line += std::move(leftPart) + std::move(middlePart);
-            }
-            line += std::move(rightPart);
+            line += std::move(leftPart) + std::move(middlePart) + std::move(rightPart);
             i = j;
             if(sentence[i - 1].getMarkupTag()
                && sentence[i - 1].getMarkupTag()->type() == TagType::OPEN_TAG) {
