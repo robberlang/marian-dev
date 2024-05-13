@@ -968,13 +968,13 @@ public:
                 }
               }
             }
-            if(!firstWordMet) {
-              firstWordMet = true;
-            }
             if(!keepTagsOutOfWords && word != getEosId()
                && ((firstWordMet && !spacePrefix.back().empty()) || wordStartsWithAlpha(word)
                    || wordEndsWithAlpha(word))) {
               keepTagsOutOfWords = true;
+            }
+            if(!firstWordMet) {
+              firstWordMet = true;
             }
           }
         }
@@ -1018,8 +1018,9 @@ public:
             bool tagSpacingRequired
                 = ((tagSpacing & TAGSPACING_BEFORE) != 0 || (tagSpacing & TAGSPACING_AFTER) != 0
                    || (tagSpacing & TAGSPACING_WITHIN) != 0);
-            bool done = false;
+            bool specialTagHandling = false;
             std::string spaceRequiredBeforeNextWord, leftPart, rightPart, middlePart;
+            std::unique_ptr<std::string> originalLeftPartBeforeClose;
             if(i > 0 && j < spacePrefix.size() && !sentence[j].getMarkupTag()
                && sentence[j] != getEosId()) {
               if(!spacePrefix[j].empty()) {
@@ -1036,7 +1037,7 @@ public:
                   // the source element content is found to be the same as the original proposed
                   // target element content)
                   if(wordStartsWithAlpha(sentence[j])) {
-                    done = true;
+                    specialTagHandling = true;
                     size_t previousWordsEndIdx = spPieces.size();
                     for(size_t k = 0; k < spPieces.size(); ++k) {
                       if(!wordEndsWithAlpha(sentence[i - k - 1])) {
@@ -1074,7 +1075,7 @@ public:
                         std::string detokenized;
                         spm_->Decode(spPieces, &detokenized);
                         spPieces.clear();
-                        leftPart += encodeSpecialChars(detokenized);
+                        leftPart = encodeSpecialChars(detokenized);
                         lineHasTrailingSpace = false;
                       }
                     }
@@ -1125,7 +1126,7 @@ public:
 
                     if(!spPieces2.empty()) {
                       if(!spaceRequired.empty() && !spaceAdded) {
-                        rightPart += spaceRequired;
+                        rightPart = spaceRequired;
                       }
                       std::string detokenized;
                       spm_->Decode(spPieces2, &detokenized);
@@ -1135,8 +1136,12 @@ public:
                   }
                 } else {
                   // closing tag(s), move right
+                  // it is possible that the action of moving an closing tag out to the end of
+                  // a word here may be reversed later (when the closing tag is encountered and
+                  // the source element content is found to be the same as the original proposed
+                  // target element content)
                   if(!spPieces.empty() && wordEndsWithAlpha(sentence[i - 1])) {
-                    done = true;
+                    specialTagHandling = true;
                     size_t k = j;
                     for(; k < spacePrefix.size() && spacePrefix[k].empty()
                           && sentence[k] != getEosId();
@@ -1166,20 +1171,30 @@ public:
                       }
                     }
 
-                    for(size_t l = j; l < k; ++l) {
-                      if(!sentence[l].getMarkupTag()) {
-                        if(!sentence[l].getSurface())
-                          spPieces.emplace_back((*this)[sentence[l]]);
-                        else
-                          spPieces.emplace_back(*(sentence[l].getSurface()));
+                    if(j < k) {
+                      if(!spPieces.empty()) {
+                        std::string detokenized;
+                        spm_->Decode(spPieces, &detokenized);
+                        originalLeftPartBeforeClose.reset(
+                            new std::string(encodeSpecialChars(detokenized)));
                       }
+
+                      size_t l = j;
+                      do {
+                        if(!sentence[l].getMarkupTag()) {
+                          if(!sentence[l].getSurface())
+                            spPieces.emplace_back((*this)[sentence[l]]);
+                          else
+                            spPieces.emplace_back(*(sentence[l].getSurface()));
+                        }
+                      } while(++l < k);
                     }
 
                     if(!spPieces.empty()) {
                       std::string detokenized;
                       spm_->Decode(spPieces, &detokenized);
                       spPieces.clear();
-                      leftPart += encodeSpecialChars(detokenized);
+                      leftPart = encodeSpecialChars(detokenized);
                       lineHasTrailingSpace = false;
                     }
 
@@ -1217,7 +1232,7 @@ public:
                     } while(++m < j);
 
                     if(!spaceRequired.empty() && !spaceAdded) {
-                      rightPart += spaceRequired;
+                      rightPart = spaceRequired;
                       lineHasTrailingSpace = true;
                     }
                   }
@@ -1225,12 +1240,12 @@ public:
               }
             }
 
-            if(!done) {
+            if(!specialTagHandling) {
               if(!spPieces.empty()) {
                 std::string detokenized;
                 spm_->Decode(spPieces, &detokenized);
                 spPieces.clear();
-                leftPart += encodeSpecialChars(detokenized);
+                leftPart = encodeSpecialChars(detokenized);
                 lineHasTrailingSpace = false;
               }
 
@@ -1282,14 +1297,17 @@ public:
               } while(++k < j);
               if(!spaceRequiredBeforeNextWord.empty() && !spaceAdded
                  && (usingSurfaces || (tagSpacing & TAGSPACING_WITHIN) == 0)) {
-                rightPart += spaceRequiredBeforeNextWord;
+                rightPart = spaceRequiredBeforeNextWord;
                 lineHasTrailingSpace = true;
               }
             }
+            bool closeTagMoved = false;
             if(word.getMarkupTag()->type() == TagType::CLOSE_TAG
                && !word.getMarkupTag()->elementContent().empty() && prevMarkupTag
                && prevMarkupTag->identifier() == word.getMarkupTag()->identifier()
-               && word.getMarkupTag()->elementContent() == leftPart) {
+               && (originalLeftPartBeforeClose
+                       ? (word.getMarkupTag()->elementContent() == *originalLeftPartBeforeClose)
+                       : (word.getMarkupTag()->elementContent() == leftPart))) {
               size_t prevTagPos = line.rfind(prevMarkupTag->tag());
               // previous tag is expected to always be found
               if(prevTagPos != std::string::npos
@@ -1297,8 +1315,19 @@ public:
                 line.erase(prevTagPos, prevMarkupTag->tag().length());
                 line += prevMarkupTag->tag();
               }
+              if(originalLeftPartBeforeClose
+                 && originalLeftPartBeforeClose->length() < leftPart.length()) {
+                // note: originalLeftPartBeforeClose is a prefix of leftPart
+                line += leftPart.substr(0, word.getMarkupTag()->elementContent().length());
+                line += std::move(middlePart);
+                line += leftPart.substr(word.getMarkupTag()->elementContent().length());
+                closeTagMoved = true;
+              }
             }
-            line += std::move(leftPart) + std::move(middlePart) + std::move(rightPart);
+            if(!closeTagMoved) {
+              line += std::move(leftPart) + std::move(middlePart);
+            }
+            line += std::move(rightPart);
             i = j;
             if(sentence[i - 1].getMarkupTag()
                && sentence[i - 1].getMarkupTag()->type() == TagType::OPEN_TAG) {
