@@ -395,16 +395,24 @@ public:
     return (word == spaceToken_);
   }
 
-  bool wordStartsWithAlpha(const Word& word) const {
-    std::u32string strU = utils::utf8ToUnicodeString((*this)[word]);
+  bool textStartsWithAlpha(const std::string& str) const {
+    std::u32string strU = utils::utf8ToUnicodeString(str);
     return !strU.empty() && !unicodecharprops::isUCharNonSpacing(strU.front())
            && unicodecharprops::isUCharAlpha(strU.front());
   }
 
-  bool wordEndsWithAlpha(const Word& word) const {
-    std::u32string strU = utils::utf8ToUnicodeString((*this)[word]);
+  bool textEndsWithAlpha(const std::string& str) const {
+    std::u32string strU = utils::utf8ToUnicodeString(str);
     return !strU.empty() && !unicodecharprops::isUCharNonSpacing(strU.back())
            && unicodecharprops::isUCharAlpha(strU.back());
+  }
+
+  bool wordStartsWithAlpha(const Word& word) const {
+    return textStartsWithAlpha((*this)[word]);
+  }
+
+  bool wordEndsWithAlpha(const Word& word) const {
+    return textEndsWithAlpha((*this)[word]);
   }
 
   void encodeMarkupText(const std::string& text,
@@ -415,9 +423,26 @@ public:
                         bool specialSymbols,
                         sentencepiece::normalizer::AddDummyPrefix& addDummyPrefix,
                         Words& words) const {
+    std::string textPlain = decodeEntities(text, inputFormat);
+    bool specialSpaceCase = false;  // artificial space based on two alphas separated only by tag
     if(!entitizeTags) {
-      if(addDummyPrefix == sentencepiece::normalizer::AddDummyPrefix::OFF && text.front() == ' ') {
-        addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
+      if(addDummyPrefix == sentencepiece::normalizer::AddDummyPrefix::OFF) {
+        if(!textPlain.empty() && textPlain.front() == ' ') {
+          addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
+        } else if(afterTag && words.size() > 1 && words.back().getMarkupTag()
+                  && words.back().getMarkupTag()->type() != TagType::OPEN_TAG
+                  && words.back().getMarkupTag()->spacing() == TAGSPACING_NONE
+                  && textStartsWithAlpha(textPlain)) {
+          for(auto it = std::next(words.rbegin()); it != words.rend(); ++it) {
+            if(!it->getMarkupTag()) {
+              if(wordEndsWithAlpha(*it)) {
+                specialSpaceCase = true;
+                addDummyPrefix   = sentencepiece::normalizer::AddDummyPrefix::ON;
+              }
+              break;
+            }
+          }
+        }
       }
     } else {
       if(addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::DEFAULT) {
@@ -425,7 +450,6 @@ public:
                                                : sentencepiece::normalizer::AddDummyPrefix::ON;
       }
     }
-    std::string textPlain = decodeEntities(text, inputFormat);
     sentencepiece::SentencePieceText spt;
     spm_->Encode(textPlain, &spt, addDummyPrefix);
     int numPieces = spt.pieces_size();
@@ -436,7 +460,7 @@ public:
       beginOffset = firstSp.end();
       Word firstWord(Word::fromWordIndex(firstSp.id(), firstSurface, false, specialSymbols));
       if(textPlain.front() == ' ' || addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON
-         || !afterTag || !isWordSpaceSymbol(firstWord)) {
+         || !afterTag || !isWordSpaceSymbol(firstWord) || specialSpaceCase) {
         words.push_back(firstWord);
       } else {
         // put the space before the tag since that is where it originates
@@ -712,17 +736,6 @@ public:
                        & TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG)
                           != 0) {
                   tagSpacing |= TAGSPACING_BEFORE_IMMEDIATE_PRECEDING_TAG;
-                }
-              }
-              if(tagType != TagType::OPEN_TAG && tagSpacing == TAGSPACING_NONE
-                 && addDummyPrefix != sentencepiece::normalizer::AddDummyPrefix::ON) {
-                for(auto it = words.rbegin(); it != words.rend(); ++it) {
-                  if(!it->getMarkupTag()) {
-                    if(wordEndsWithAlpha(*it)) {
-                      addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
-                    }
-                    break;
-                  }
                 }
               }
               if(!joinTagToPrev) {
