@@ -243,7 +243,7 @@ struct fmt::formatter<marian::Shape> {
   }
 
   template <typename FormatContext>
-  auto format(const marian::Shape& shape, FormatContext& ctx) -> decltype(ctx.out()) {
+  auto format(const marian::Shape& shape, FormatContext& ctx) const -> decltype(ctx.out()) {
     return fmt::format_to(ctx.out(), "{}", shape.toString());
   }
 };

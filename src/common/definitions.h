@@ -202,7 +202,7 @@ struct fmt::formatter<marian::DeviceId> {
   auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const marian::DeviceId& deviceId, FormatContext& ctx) -> decltype(ctx.out()) {
+  auto format(const marian::DeviceId& deviceId, FormatContext& ctx) const -> decltype(ctx.out()) {
     return fmt::format_to(ctx.out(), "{}", std::string(deviceId));
   }
 };
