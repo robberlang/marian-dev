@@ -12,42 +12,74 @@
 const int MAX_THREADS = 512;
 const int MAX_BLOCKS = 65535;
 
-#define CUDA_CHECK(expr) do {                                                                      \
-  cudaError_t rc = (expr);                                                                         \
-  ABORT_IF(rc != cudaSuccess,                                                                      \
-        "CUDA error {} '{}' - {}:{}: {}", rc, cudaGetErrorString(rc),  __FILE__, __LINE__, #expr); \
-} while(0)
+#define CUDA_CHECK(expr)                       \
+  do {                                         \
+    cudaError_t rc = (expr);                   \
+    ABORT_IF(rc != cudaSuccess,                \
+             "CUDA error {} '{}' - {}:{}: {}", \
+             static_cast<int>(rc),             \
+             cudaGetErrorString(rc),           \
+             __FILE__,                         \
+             __LINE__,                         \
+             #expr);                           \
+  } while(0)
 
-#define CUBLAS_CHECK(expr) do {                                              \
-  cublasStatus_t rc = (expr);                                                \
-  ABORT_IF(rc != CUBLAS_STATUS_SUCCESS,                                      \
-           "Cublas Error: {} - {}:{}: {}", rc, __FILE__, __LINE__, #expr);   \
-} while(0)
+#define CUBLAS_CHECK(expr)                   \
+  do {                                       \
+    cublasStatus_t rc = (expr);              \
+    ABORT_IF(rc != CUBLAS_STATUS_SUCCESS,    \
+             "Cublas Error: {} - {}:{}: {}", \
+             static_cast<int>(rc),           \
+             __FILE__,                       \
+             __LINE__,                       \
+             #expr);                         \
+  } while(0)
 
-#define CUSPARSE_CHECK(expr) do {                                              \
-  cusparseStatus_t rc = (expr);                                                \
-  ABORT_IF(rc != CUSPARSE_STATUS_SUCCESS,                                      \
-           "Cusparse Error: {} - {}:{}: {}", rc, __FILE__, __LINE__, #expr);   \
-} while(0)
+#define CUSPARSE_CHECK(expr)                   \
+  do {                                         \
+    cusparseStatus_t rc = (expr);              \
+    ABORT_IF(rc != CUSPARSE_STATUS_SUCCESS,    \
+             "Cusparse Error: {} - {}:{}: {}", \
+             static_cast<int>(rc),             \
+             __FILE__,                         \
+             __LINE__,                         \
+             #expr);                           \
+  } while(0)
 
-#define NCCL_CHECK(expr) do {                                                                      \
-  ncclResult_t rc = (expr);                                                                        \
-  ABORT_IF(rc != ncclSuccess,                                                                      \
-        "NCCL error {} '{}' - {}:{}: {}", rc, ncclGetErrorString(rc),  __FILE__, __LINE__, #expr); \
-} while(0)
+#define NCCL_CHECK(expr)                       \
+  do {                                         \
+    ncclResult_t rc = (expr);                  \
+    ABORT_IF(rc != ncclSuccess,                \
+             "NCCL error {} '{}' - {}:{}: {}", \
+             static_cast<int>(rc),             \
+             ncclGetErrorString(rc),           \
+             __FILE__,                         \
+             __LINE__,                         \
+             #expr);                           \
+  } while(0)
 
-#define CURAND_CHECK(expr) do {                                          \
-  curandStatus_t rc = (expr);                                            \
-  ABORT_IF(rc != CURAND_STATUS_SUCCESS,                                  \
-          "Curand error {} - {}:{}: {}", rc, __FILE__, __LINE__, #expr); \
-} while(0)
+#define CURAND_CHECK(expr)                  \
+  do {                                      \
+    curandStatus_t rc = (expr);             \
+    ABORT_IF(rc != CURAND_STATUS_SUCCESS,   \
+             "Curand error {} - {}:{}: {}", \
+             static_cast<int>(rc),          \
+             __FILE__,                      \
+             __LINE__,                      \
+             #expr);                        \
+  } while(0)
 
 // @TODO: remove this if no longer used
 inline void gpuAssert(cudaError_t code, const char* exprString,
                       const char* file,
                       int line) {
   ABORT_IF(code != cudaSuccess,
-           "CUDA Error {}: {} - {}:{}: {}", code, cudaGetErrorString(code), file, line, exprString);
+           "CUDA Error {}: {} - {}:{}: {}",
+           static_cast<int>(code),
+           cudaGetErrorString(code),
+           file,
+           line,
+           exprString);
 }
 
 // @TODO: is this used anywhere?

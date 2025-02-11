@@ -659,7 +659,7 @@ struct fmt::formatter<::marian::Type> {
   auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const ::marian::Type& type, FormatContext& ctx) -> decltype(ctx.out()) {
-    return fmt::format_to(ctx.out(), "{}", (size_t)type);
+  auto format(const ::marian::Type& type, FormatContext& ctx) const -> decltype(ctx.out()) {
+    return fmt::format_to(ctx.out(), "{}", static_cast<size_t>(type));
   }
 };
