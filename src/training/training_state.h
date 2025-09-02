@@ -292,7 +292,7 @@ public:
   }
 
   std::string fillTemplate(const std::string& templ) const {
-    return fmt::format(templ.c_str(),
+    return fmt::format(fmt::runtime(templ.c_str()),
                        fmt::arg("E", epochs),
                        fmt::arg("U", batches),
                        fmt::arg("B", batchesEpoch),

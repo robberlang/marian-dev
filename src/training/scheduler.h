@@ -126,7 +126,7 @@ private:
 
   // Formatting for logical epochs
   std::string formatLogicalEpoch() {
-    return fmt::format("{:." + std::to_string(logicalEpochWidth_) + "f}", calculateLogicalEpoch());
+    return fmt::format(fmt::runtime("{:." + std::to_string(logicalEpochWidth_) + "f}"), calculateLogicalEpoch());
   }
 
 public:
