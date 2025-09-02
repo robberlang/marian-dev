@@ -178,7 +178,7 @@ public:
   bool enteredNewPeriodOf(std::string schedulingParam) const {
     auto period = SchedulingParameter::parse(schedulingParam);
     ABORT_IF(period.unit == SchedulingUnit::epochs,
-             "Unit {} is not supported for frequency parameters (the one(s) with value {})",
+             "Unit {} is not supported for frequency parameters",
              schedulingParam);
     auto previousProgress = getPreviousProgressIn(period.unit);
     auto progress = getProgressIn(period.unit);
@@ -308,7 +308,7 @@ public:
   }
 
   std::string fillTemplate(const std::string& templ) const {
-    return fmt::format(templ.c_str(),
+    return fmt::format(fmt::runtime(templ.c_str()),
                        fmt::arg("E", epochs),
                        fmt::arg("U", batches),
                        fmt::arg("B", batchesEpoch),

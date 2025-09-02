@@ -198,11 +198,9 @@ const float NEMATUS_LN_EPS = 1e-5f;
 }  // namespace marian
 
 template <>
-struct fmt::formatter<marian::DeviceId> {
-  auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
-
-  template <typename FormatContext>
-  auto format(const marian::DeviceId& deviceId, FormatContext& ctx) const -> decltype(ctx.out()) {
-    return fmt::format_to(ctx.out(), "{}", std::string(deviceId));
+struct fmt::formatter<marian::DeviceId> : fmt::formatter<std::string> {
+  auto format(const marian::DeviceId& deviceId, fmt::format_context& ctx) const
+      -> format_context::iterator {
+    return fmt::formatter<std::string>::format(std::string(deviceId), ctx);
   }
 };

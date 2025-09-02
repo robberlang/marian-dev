@@ -3,6 +3,10 @@
 
 namespace marian {
 
+auto format_as(Type type) -> size_t {
+  return fmt::underlying(type);
+}
+
 // this function calculates the amount of bytes needed to contain a tensor of given shape and type. 
 // For most situation that is trivial (just number of elements time size of single element).
 // But for instance, for intransparent types like packed tensors, it cannot easily be inferred by

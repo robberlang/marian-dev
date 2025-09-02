@@ -122,6 +122,10 @@ static void unhandledException() {
   }
 }
 
+std::string formatMsg(std::string msg) {
+  return msg;
+}
+
 static void setErrorHandlers() {
   // call stack for unhandled exceptions
   std::set_terminate(unhandledException);

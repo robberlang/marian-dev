@@ -332,6 +332,8 @@ enum class Type : size_t {
   intgemm16avx512     = TypeClass::intgemm_type + 2u + TypeClass::avx512_type,         ///< Int16 quantized and packed (avx512) matrices for intgemm
 };
 
+auto format_as(Type type) -> size_t;
+
 static inline size_t operator&(TypeClass typeClass, Type type) {
   return (size_t)typeClass & (size_t)type;
 }
@@ -651,19 +653,10 @@ public:
 
 // custom specialization of std::hash can be injected in namespace std
 namespace std {
-  template<> struct hash<::marian::Type> {
-    size_t operator()(const ::marian::Type& type) const noexcept {
-      return (size_t)type; // type is already a unique value of type size_t
-    }
-  };
-}
-
 template <>
-struct fmt::formatter<::marian::Type> {
-  auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
-
-  template <typename FormatContext>
-  auto format(const ::marian::Type& type, FormatContext& ctx) const -> decltype(ctx.out()) {
-    return fmt::format_to(ctx.out(), "{}", static_cast<size_t>(type));
+struct hash<::marian::Type> {
+  size_t operator()(const ::marian::Type& type) const noexcept {
+    return (size_t)type;  // type is already a unique value of type size_t
   }
 };
+}  // namespace std

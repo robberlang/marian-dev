@@ -237,13 +237,9 @@ public:
 }  // namespace marian
 
 template <>
-struct fmt::formatter<marian::Shape> {
-  auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) {
-    return ctx.begin();
-  }
-
-  template <typename FormatContext>
-  auto format(const marian::Shape& shape, FormatContext& ctx) const -> decltype(ctx.out()) {
-    return fmt::format_to(ctx.out(), "{}", shape.toString());
+struct fmt::formatter<marian::Shape> : fmt::formatter<std::string> {
+  auto format(const marian::Shape& shape, fmt::format_context& ctx) const
+      -> format_context::iterator {
+    return fmt::formatter<std::string>::format(shape.toString(), ctx);
   }
 };

@@ -64,6 +64,10 @@ bool setLoggingLevel(spdlog::logger& logger, std::string const level) {
   return true;
 }
 
+std::string formatMsg(std::string msg) {
+  return msg;
+}
+
 static void setErrorHandlers();
 std::vector<Logger> createLoggers(const marian::Config* config) {
   std::vector<std::string> generalLogs;

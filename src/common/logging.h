@@ -94,21 +94,22 @@ namespace marian {
  *
  * @param ... Message text and variables
  */
-#define ABORT(...)                                                                    \
+#define ABORT(fmt, ...)                                                               \
   do {                                                                                \
     auto logger = spdlog::get("general");                                             \
     if(logger == nullptr)                                                             \
       logger = createStderrLogger("general", "[%Y-%m-%d %T.%e] [%t] [%l] Error: %v"); \
     else                                                                              \
       logger->set_pattern("[%Y-%m-%d %T.%e] [%t] [%l] Error: %v");                    \
-    checkedLog("general", "critical", __VA_ARGS__);                                   \
+    checkedLog("general", "critical", fmt __VA_OPT__(,) __VA_ARGS__);                 \
     checkedLog("general", "critical", "Aborted from {} in {}:{}",                     \
                FUNCTION_NAME, __FILE__, __LINE__);                                    \
     logger->set_pattern("%v");                                                        \
     auto callStack = marian::getCallStack(/*skipLevels=*/0);                          \
     checkedLog("general", "critical", callStack);                                     \
     if(marian::getThrowExceptionOnAbort())                                            \
-      throw marian::MarianRuntimeException(fmt::format(__VA_ARGS__), callStack);      \
+      throw marian::MarianRuntimeException(formatMsg(fmt __VA_OPT__(, ) __VA_ARGS__), \
+                                           callStack);                                \
     else                                                                              \
       std::abort();                                                                   \
   } while(0)
@@ -122,18 +123,18 @@ namespace marian {
  *
  * @see \def ABORT(...)
  */
-#define ABORT_IF(condition, ...) \
-  do {                           \
-    if(condition) {              \
-      ABORT(__VA_ARGS__);        \
-    }                            \
+#define ABORT_IF(condition, fmt, ...)          \
+  do {                                         \
+    if(condition) {                            \
+      ABORT(fmt __VA_OPT__(,) __VA_ARGS__);    \
+    }                                          \
   } while(0)
 
-#define ABORT_UNLESS(condition, ...) \
-  do {                               \
-    if(!(bool)(condition)) {         \
-      ABORT(__VA_ARGS__);            \
-    }                                \
+#define ABORT_UNLESS(condition, fmt, ...)      \
+  do {                                         \
+    if(!(bool)(condition)) {                   \
+      ABORT(fmt __VA_OPT__(,) __VA_ARGS__);    \
+    }                                          \
   } while(0)
 
 typedef std::shared_ptr<spdlog::logger> Logger;
@@ -147,27 +148,39 @@ class Config;
 }
 
 template <class... Args>
-void checkedLog(std::string logger, std::string level, Args... args) {
+std::string formatMsg(fmt::format_string<Args...> fmt, Args&&... args) {
+  return fmt::format(fmt, std::forward<Args>(args)...);
+}
+
+std::string formatMsg(std::string msg);
+
+template <class... Args>
+void checkedLog(const std::string& logger, const std::string& level, fmt::format_string<Args...> fmt, Args&&... args) {
   Logger log = spdlog::get(logger);
   if(!log) {
     return;
   }
 
   if(level == "trace")
-    log->trace(args...);
+    log->trace(fmt, std::forward<Args>(args)...);
   else if(level == "debug")
-    log->debug(args...);
+    log->debug(fmt, std::forward<Args>(args)...);
   else if(level == "info")
-    log->info(args...);
+    log->info(fmt, std::forward<Args>(args)...);
   else if(level == "warn")
-    log->warn(args...);
+    log->warn(fmt, std::forward<Args>(args)...);
   else if(level == "error")
-    log->error(args...);
+    log->error(fmt, std::forward<Args>(args)...);
   else if(level == "critical")
-    log->critical(args...);
+    log->critical(fmt, std::forward<Args>(args)...);
   else {
     log->warn("Unknown log level '{}' for logger '{}'", level, logger);
   }
+}
+
+template <typename T>
+void checkedLog(const std::string& logger, const std::string& level, const T& msg) {
+  checkedLog(logger, level, "{}", msg);
 }
 
 std::vector<Logger> createLoggers(const marian::Config* options = nullptr);
