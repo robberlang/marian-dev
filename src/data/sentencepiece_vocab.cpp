@@ -17,10 +17,14 @@
 #include <functional>
 #include <cctype>
 #include <cassert>
+#include <string_view>
 
 namespace marian {
 
 #ifdef USE_SENTENCEPIECE
+
+// from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
+const std::string_view SP_SPACE_SYMBOL = "\xe2\x96\x81";
 
 // Wrapper around https://github.com/google/sentencepiece
 class SentencePieceVocab : public IVocab {
@@ -395,7 +399,7 @@ public:
     if(!entitizeTags) {
       if(addDummyPrefix == sentencepiece::normalizer::AddDummyPrefix::OFF) {
         if(!textPlain.empty() && textPlain.front() == ' ') {
-        addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
+          addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
         } else if(afterTag && words.size() > 1 && words.back().getMarkupTag()
                   && words.back().getMarkupTag()->type() != TagType::OPEN_TAG
                   && words.back().getMarkupTag()->spacing() == TAGSPACING_NONE
@@ -404,7 +408,7 @@ public:
             if(!it->getMarkupTag()) {
               if(wordEndsWithAlpha(*it)) {
                 specialSpaceCase = true;
-                addDummyPrefix   = sentencepiece::normalizer::AddDummyPrefix::ON;
+                addDummyPrefix = sentencepiece::normalizer::AddDummyPrefix::ON;
               }
               break;
             }
@@ -946,9 +950,7 @@ public:
             if(!firstWordMet && word.getSurface() && !usingSurfaces) {
               usingSurfaces = true;
             }
-            // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
-            if(curWord.length() >= 3 && curWord[0] == (char)0xe2 && curWord[1] == (char)0x96
-               && curWord[2] == (char)0x81) {
+            if(curWord.starts_with(SP_SPACE_SYMBOL)) {
               if(!word.getSurface()) {
                 spacePrefix.back() = " ";
               } else {
@@ -1073,9 +1075,9 @@ public:
                       if(!spPieces.empty()) {
                         std::string detokenized;
                         spm_->Decode(spPieces, &detokenized);
-                        spPieces.clear();
                         leftPart = encodeSpecialChars(detokenized);
-                        lineHasTrailingSpace = false;
+                        lineHasTrailingSpace = (spPieces.back() == SP_SPACE_SYMBOL);
+                        spPieces.clear();
                       }
                     }
 
@@ -1130,7 +1132,7 @@ public:
                       std::string detokenized;
                       spm_->Decode(spPieces2, &detokenized);
                       rightPart += encodeSpecialChars(detokenized);
-                      lineHasTrailingSpace = false;
+                      lineHasTrailingSpace = (spPieces2.back() == SP_SPACE_SYMBOL);
                     }
                   }
                 } else {
@@ -1180,21 +1182,21 @@ public:
 
                       size_t l = j;
                       do {
-                      if(!sentence[l].getMarkupTag()) {
-                        if(!sentence[l].getSurface())
-                          spPieces.emplace_back((*this)[sentence[l]]);
-                        else
-                          spPieces.emplace_back(*(sentence[l].getSurface()));
-                      }
+                        if(!sentence[l].getMarkupTag()) {
+                          if(!sentence[l].getSurface())
+                            spPieces.emplace_back((*this)[sentence[l]]);
+                          else
+                            spPieces.emplace_back(*(sentence[l].getSurface()));
+                        }
                       } while(++l < k);
                     }
 
                     if(!spPieces.empty()) {
                       std::string detokenized;
                       spm_->Decode(spPieces, &detokenized);
-                      spPieces.clear();
                       leftPart = encodeSpecialChars(detokenized);
-                      lineHasTrailingSpace = false;
+                      lineHasTrailingSpace = (spPieces.back() == SP_SPACE_SYMBOL);
+                      spPieces.clear();
                     }
 
                     j = k;
@@ -1243,9 +1245,9 @@ public:
               if(!spPieces.empty()) {
                 std::string detokenized;
                 spm_->Decode(spPieces, &detokenized);
-                spPieces.clear();
                 leftPart = encodeSpecialChars(detokenized);
-                lineHasTrailingSpace = false;
+                lineHasTrailingSpace = (spPieces.back() == SP_SPACE_SYMBOL);
+                spPieces.clear();
               }
 
               bool emptyLine = line.empty() && leftPart.empty();
@@ -1324,6 +1326,10 @@ public:
               }
             }
             if(!closeTagMoved) {
+              if(!usingSurfaces && (tagSpacing & TAGSPACING_WITHIN) != 0 && !leftPart.empty()
+                 && leftPart.back() == ' ') {
+                leftPart.pop_back();
+              }
               line += std::move(leftPart) + std::move(middlePart);
             }
             line += std::move(rightPart);
@@ -1424,9 +1430,7 @@ public:
     hasTerminologyConstraints_ = (termTokenS_.toWordIndex() != (WordIndex)-1
                                   && termTokenOpenC_.toWordIndex() != (WordIndex)-1
                                   && termTokenCloseC_.toWordIndex() != (WordIndex)-1);
-    // from, in SP: const absl::string_view kSpaceSymbol = "\xe2\x96\x81";
-    const char spaceSymbol[] = {(char)0xe2, (char)0x96, (char)0x81, 0x00};
-    spaceToken_ = (*this)[(std::string(spaceSymbol))];
+    spaceToken_ = (*this)[(std::string(SP_SPACE_SYMBOL))];
     spaceToken_.setIsSpecialSymbol(true);
   }
 
