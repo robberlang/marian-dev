@@ -686,13 +686,39 @@ WordAlignment ConvertSoftAlignToHardAlign(const SoftAlignment& alignSoft,
   }
   // Alignments by maximum value
   if(useStrategy) {
+    std::vector<size_t> acceptableSourceIndices;
+    if(matchLastWithLast) {
+      for(size_t s = startSrc; s < endSrc; ++s) {
+        float maxAlignScore = 0.0f;
+        for(size_t t = startTrg; t < endTrg; ++t) {
+          if(alignSoft[t][s] > threshold) {
+            if(alignSoft[t][s] > maxAlignScore) {
+              maxAlignScore = alignSoft[t][s];
+            }
+          }
+        }
+        if(maxAlignScore > alignSoft[endTrg][s]) {
+          acceptableSourceIndices.push_back(s);
+        }
+      }
+    }
     std::vector<std::tuple<size_t, size_t, float>> alignProbs;
     for(size_t t = startTrg; t < endTrg; ++t) {
       // Retrieved alignments are in reversed order
-      for(size_t s = startSrc; s < endSrc; ++s) {
+      std::vector<std::tuple<size_t, size_t, float>> alignProbsTrg;
+      float maxAlignScore = 0.0f;
+      for(size_t s : acceptableSourceIndices) {
         if(alignSoft[t][s] > threshold) {
-          alignProbs.emplace_back(s, t, alignSoft[t][s]);
+          if(alignSoft[t][s] > maxAlignScore) {
+            maxAlignScore = alignSoft[t][s];
+          }
+
+          alignProbsTrg.emplace_back(s, t, alignSoft[t][s]);
         }
+      }
+      // highest alignment score for target should exceed that of score with source EOS
+      if(!matchLastWithLast || maxAlignScore > alignSoft[t][endSrc]) {
+        alignProbs.insert(alignProbs.end(), alignProbsTrg.begin(), alignProbsTrg.end());
       }
     }
     std::sort(alignProbs.begin(),
